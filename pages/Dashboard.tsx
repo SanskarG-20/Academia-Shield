@@ -44,6 +44,7 @@ const StatCard = ({ title, value, trend, icon, color }: any) => (
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const userRole = localStorage.getItem('userRole');
+  const userName = localStorage.getItem('userName') || (userRole === 'student' ? 'Student' : 'Professor');
   const isStudent = userRole === 'student';
 
   // Mock Live Sessions Data
@@ -72,7 +73,7 @@ export const Dashboard: React.FC = () => {
           <p className="text-slate-500 dark:text-slate-400">
             {isStudent 
               ? 'Welcome back. Check your upcoming schedule and compliance status.' 
-              : 'Welcome back, Dr. Turing. Here\'s what\'s happening today.'}
+              : `Welcome back, ${userName}. Here's what's happening today.`}
           </p>
         </div>
         {!isStudent && (

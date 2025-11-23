@@ -120,12 +120,14 @@ export const ProfessorProfile: React.FC = () => {
                 onChange={handleChange}
                 options={[
                   { value: '', label: 'Select Department' },
-                  { value: 'CSE', label: 'Computer Science (CSE)' },
-                  { value: 'IT', label: 'Information Technology (IT)' },
-                  { value: 'ECE', label: 'Electronics & Comm (ECE)' },
-                  { value: 'EEE', label: 'Electrical & Electronics (EEE)' },
-                  { value: 'SCI', label: 'Applied Sciences' },
-                  { value: 'HUM', label: 'Humanities' },
+                  { value: 'CE', label: 'Computer Engineering' },
+                  { value: 'IT', label: 'Information Technology' },
+                  { value: 'AIDS', label: 'AI & Data Science' },
+                  { value: 'AIML', label: 'AI & Machine Learning' },
+                  { value: 'CSE_ICB', label: 'CSE (ICB)' },
+                  { value: 'CSE_DS', label: 'CSE (DS)' },
+                  { value: 'MECH', label: 'Mechanical Engineering' },
+                  { value: 'EXTC', label: 'EXTC' },
                 ]}
               />
 

@@ -1,8 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { SpotlightCard } from '../components/ui/SpotlightCard';
-import { Calendar, Clock, ArrowRight, CheckCircle, BookOpen, EyeOff, RefreshCw, Globe, Play, XCircle, MousePointer2 } from 'lucide-react';
+import { Calendar, Clock, ArrowRight, CheckCircle, BookOpen, EyeOff, RefreshCw, Globe, Play, XCircle, MousePointer2, Activity } from 'lucide-react';
 import { MOCK_SESSIONS, MOCK_BATCHES, MOCK_RULE_SETS } from '../constants';
 import { Session, SessionStatus } from '../types';
 
@@ -55,7 +56,7 @@ export const StudentSession: React.FC = () => {
   const simulateActivity = (activity: string) => {
       // In a real app, this sends a log to backend
       console.log(`[Student Activity] ${activity} in session ${currentSessionId}`);
-      alert(`Simulated: Opened ${activity}`);
+      alert(`Simulation: Opened ${activity}.\n\nLogging Started:\n- Active Time Tracking: ON\n- Background/Idle Time Tracking: ON\n- Context Switch Counter: ON`);
   };
 
   if (isWorking && activeSession) {
@@ -68,7 +69,10 @@ export const StudentSession: React.FC = () => {
                           <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"/>
                           Working Mode: {activeSession.title}
                       </h2>
-                      <p className="text-slate-500 mt-1">Your activity is being logged.</p>
+                      <p className="text-slate-500 mt-1 flex items-center gap-2">
+                        <Activity size={14} className="text-emerald-500"/>
+                        Tracking: Active Focus Time vs Background Time
+                      </p>
                   </div>
                   <Button variant="danger" onClick={() => setIsWorking(false)}>Stop Session</Button>
               </div>
@@ -76,6 +80,9 @@ export const StudentSession: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <Card title="Allowed Resources" className="md:col-span-2">
                       <div className="space-y-4">
+                          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">
+                             <strong>Session Policy:</strong> Your activity within these resources is logged. We track how long each tab is active vs hidden in the background.
+                          </div>
                           <p className="text-sm text-slate-500">
                               Access strictly limited to the following resources. Click to simulate access.
                           </p>
@@ -122,8 +129,12 @@ export const StudentSession: React.FC = () => {
                                   <span className="font-mono font-bold text-xl">00:12:45</span>
                               </div>
                               <div className="flex justify-between items-center">
-                                  <span className="text-sm text-slate-500">Engagement</span>
-                                  <span className="font-bold text-emerald-500">98%</span>
+                                  <span className="text-sm text-slate-500">Active Focus</span>
+                                  <span className="font-bold text-emerald-500">92%</span>
+                              </div>
+                              <div className="flex justify-between items-center">
+                                  <span className="text-sm text-slate-500">Context Switches</span>
+                                  <span className="font-bold text-slate-700 dark:text-slate-300">0</span>
                               </div>
                               <div className="pt-4 border-t border-slate-100 dark:border-slate-700">
                                   <p className="text-xs text-slate-400 mb-2">Policy Status</p>

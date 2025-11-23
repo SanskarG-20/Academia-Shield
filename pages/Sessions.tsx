@@ -5,11 +5,12 @@ import { Button } from '../components/ui/Button';
 import { Input, Select } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
 import { Plus, Filter, Trash2, Calendar, Clock, AlertCircle, Search, X, Globe, Lock, ShieldAlert, Users, School, Sparkles } from 'lucide-react';
-import { SessionStatus, SessionType, Session } from '../types';
+import { SessionStatus, SessionType, Session, RuleSet } from '../types';
 import { MOCK_BATCHES, MOCK_RULE_SETS } from '../constants';
 
 export const Sessions: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [availableRuleSets, setAvailableRuleSets] = useState<RuleSet[]>(MOCK_RULE_SETS);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false); // For students
   const [joinCode, setJoinCode] = useState('');
@@ -29,6 +30,14 @@ export const Sessions: React.FC = () => {
 
   const userRole = localStorage.getItem('userRole');
   const isStudent = userRole === 'student';
+
+  // Load custom rules for sync
+  useEffect(() => {
+    const storedRules = localStorage.getItem('customRuleSets');
+    if (storedRules) {
+      setAvailableRuleSets(JSON.parse(storedRules));
+    }
+  }, [isModalOpen]);
 
   // Initialize with demo data relative to current time to demonstrate features
   useEffect(() => {
@@ -629,7 +638,7 @@ export const Sessions: React.FC = () => {
                  label="Select Security Rule Set"
                  options={[
                      { value: '', label: 'Select a Rule Set...' },
-                     ...MOCK_RULE_SETS.map(r => ({ value: r.id, label: `${r.name} (${r.mode})` }))
+                     ...availableRuleSets.map(r => ({ value: r.id, label: `${r.name} (${r.mode})` }))
                  ]}
                  value={newSession.ruleSetId}
                  onChange={(e) => setNewSession({...newSession, ruleSetId: e.target.value})}

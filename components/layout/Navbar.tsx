@@ -2,8 +2,36 @@ import React from 'react';
 import { Bell, Search, User } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
-  const userName = localStorage.getItem('userName') || 'Dr. A. Turing';
-  const userRole = localStorage.getItem('userRole') === 'student' ? 'Student' : 'Senior Admin';
+  const userName = localStorage.getItem('userName') || 'User';
+  const role = localStorage.getItem('userRole');
+  
+  // Determine display role dynamically
+  let displayRole = 'User';
+  if (role === 'student') {
+      displayRole = 'Student';
+  } else if (role === 'admin' || role === 'professor') {
+      const profProfileStr = localStorage.getItem('professorProfile');
+      if (profProfileStr) {
+          try {
+             const prof = JSON.parse(profProfileStr);
+             // Use designation if available, e.g. "Assistant Professor" or "Head of Department"
+             // Map shorter codes to readable names if necessary, but here we assume the Select values
+             const designationMap: Record<string, string> = {
+                 'AP': 'Assistant Professor',
+                 'ASP': 'Associate Professor',
+                 'PROF': 'Professor',
+                 'HOD': 'Head of Department',
+                 'ADMIN': 'System Administrator',
+                 'LAB': 'Lab Instructor'
+             };
+             displayRole = designationMap[prof.designation] || prof.designation || 'Faculty Admin';
+          } catch (e) {
+             displayRole = 'Faculty Admin';
+          }
+      } else {
+          displayRole = 'Faculty Admin';
+      }
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-6">
@@ -31,7 +59,7 @@ export const Navbar: React.FC = () => {
         <div className="flex items-center gap-3 border-l border-slate-200 dark:border-slate-700 pl-4">
           <div className="text-right hidden sm:block">
             <p className="text-sm font-medium text-slate-900 dark:text-white">{userName}</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{userRole}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{displayRole}</p>
           </div>
           <div className="h-9 w-9 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-700">
             <User size={18} />

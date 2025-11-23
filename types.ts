@@ -51,7 +51,9 @@ export interface LogEntry {
   sessionName: string;
   resourceAccessed: string;
   isWhitelisted: boolean;
-  timeSpentSeconds: number;
+  activeSeconds: number;     // Time tab was focused/active
+  backgroundSeconds: number; // Time tab was open but in background
+  windowSwitches: number;    // Number of times student switched away from this resource
   engagementScore: number;
   timestamp: string;
 }

@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Input } from '../components/ui/Input';
+import { Input, Select } from '../components/ui/Input';
 import { User, Moon, Sun, Lock, Info } from 'lucide-react';
 
 export const Settings: React.FC = () => {
   const [darkMode, setDarkMode] = useState(false);
   const [userProfile, setUserProfile] = useState({
     name: '',
-    email: ''
+    email: '',
+    department: '',
+    role: ''
   });
 
   useEffect(() => {
@@ -16,9 +18,32 @@ export const Settings: React.FC = () => {
       setDarkMode(true);
     }
 
-    const storedName = localStorage.getItem('userName') || 'Alan Turing';
-    const storedEmail = localStorage.getItem('userEmail') || 'admin@university.edu';
-    setUserProfile({ name: storedName, email: storedEmail });
+    const role = localStorage.getItem('userRole') || '';
+    const name = localStorage.getItem('userName') || '';
+    const email = localStorage.getItem('userEmail') || '';
+    
+    let department = '';
+    
+    // Attempt to load department from stored profiles
+    if (role === 'student') {
+        const stored = localStorage.getItem('studentProfile');
+        if (stored) {
+            try {
+                const data = JSON.parse(stored);
+                department = data.department || '';
+            } catch (e) { console.error('Error parsing student profile', e); }
+        }
+    } else {
+        const stored = localStorage.getItem('professorProfile');
+        if (stored) {
+            try {
+                const data = JSON.parse(stored);
+                department = data.department || '';
+            } catch (e) { console.error('Error parsing professor profile', e); }
+        }
+    }
+
+    setUserProfile({ name, email, department, role });
   }, []);
 
   const toggleDarkMode = () => {
@@ -31,13 +56,32 @@ export const Settings: React.FC = () => {
     }
   };
 
+  const handleSave = () => {
+    // Update local storage
+    localStorage.setItem('userName', userProfile.name);
+    
+    if (userProfile.role === 'student') {
+        const stored = JSON.parse(localStorage.getItem('studentProfile') || '{}');
+        const updated = { ...stored, fullName: userProfile.name, department: userProfile.department };
+        localStorage.setItem('studentProfile', JSON.stringify(updated));
+    } else {
+        const stored = JSON.parse(localStorage.getItem('professorProfile') || '{}');
+        const updated = { ...stored, fullName: userProfile.name, department: userProfile.department };
+        localStorage.setItem('professorProfile', JSON.stringify(updated));
+    }
+    
+    alert('Profile changes saved successfully.');
+    // Force reload to update Navbar/Sidebar if name changed
+    window.location.reload();
+  };
+
   return (
     <div className="max-w-4xl space-y-6">
       <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Settings</h1>
 
       <Card title="Profile Information">
         <div className="flex items-start gap-6">
-          <div className="h-20 w-20 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-400">
+          <div className="h-20 w-20 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0">
             <User size={40} />
           </div>
           <div className="flex-1 space-y-4">
@@ -51,11 +95,29 @@ export const Settings: React.FC = () => {
                 label="Email" 
                 value={userProfile.email} 
                 disabled 
+                className="bg-slate-50 dark:bg-slate-900 text-slate-500 cursor-not-allowed"
               />
             </div>
-            <Input label="Department" defaultValue="Computer Science" />
+            
+            <Select 
+                label="Department"
+                value={userProfile.department}
+                onChange={(e) => setUserProfile({...userProfile, department: e.target.value})}
+                options={[
+                  { value: '', label: 'Select Department' },
+                  { value: 'CE', label: 'Computer Engineering' },
+                  { value: 'IT', label: 'Information Technology' },
+                  { value: 'AIDS', label: 'AI & Data Science' },
+                  { value: 'AIML', label: 'AI & Machine Learning' },
+                  { value: 'CSE_ICB', label: 'CSE (ICB)' },
+                  { value: 'CSE_DS', label: 'CSE (DS)' },
+                  { value: 'MECH', label: 'Mechanical Engineering' },
+                  { value: 'EXTC', label: 'EXTC' },
+                ]}
+            />
+            
             <div className="flex justify-end">
-              <Button>Save Changes</Button>
+              <Button onClick={handleSave}>Save Changes</Button>
             </div>
           </div>
         </div>

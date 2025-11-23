@@ -14,7 +14,18 @@
     "react": "^19.2.0",
     "react-router-dom": "^7.9.6",
     "recharts": "^3.4.1",
-    "@google/genai": "^1.30.0"
+    "@google/genai": "^1.30.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "cors": "^2.8.5",
+    "http": "^0.0.1-security",
+    "mongoose": "^9.0.0",
+    "bcryptjs": "^3.0.3",
+    "nodemailer": "^7.0.10",
+    "socket.io": "^4.8.1",
+    "jsonwebtoken": "^9.0.2",
+    "helmet": "^8.1.0",
+    "morgan": "^1.10.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

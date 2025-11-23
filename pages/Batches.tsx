@@ -17,7 +17,7 @@ export const Batches: React.FC = () => {
   // Form State
   const [newBatch, setNewBatch] = useState({
     name: '',
-    department: 'CSE',
+    department: 'CE',
     year: '1',
     code: ''
   });
@@ -50,7 +50,7 @@ export const Batches: React.FC = () => {
 
     setBatches([batch, ...batches]);
     setIsModalOpen(false);
-    setNewBatch({ name: '', department: 'CSE', year: '1', code: '' });
+    setNewBatch({ name: '', department: 'CE', year: '1', code: '' });
   };
 
   const copyToClipboard = (code: string, id: string) => {
@@ -160,10 +160,14 @@ export const Batches: React.FC = () => {
             <Select 
               label="Department"
               options={[
-                { value: 'CSE', label: 'Computer Science' },
-                { value: 'IT', label: 'Information Tech' },
-                { value: 'ECE', label: 'Electronics' },
-                { value: 'MECH', label: 'Mechanical' },
+                { value: 'CE', label: 'Computer Engineering' },
+                { value: 'IT', label: 'Information Technology' },
+                { value: 'AIDS', label: 'AI & Data Science' },
+                { value: 'AIML', label: 'AI & Machine Learning' },
+                { value: 'CSE_ICB', label: 'CSE (ICB)' },
+                { value: 'CSE_DS', label: 'CSE (DS)' },
+                { value: 'MECH', label: 'Mechanical Engineering' },
+                { value: 'EXTC', label: 'EXTC' },
               ]}
               value={newBatch.department}
               onChange={(e) => {
