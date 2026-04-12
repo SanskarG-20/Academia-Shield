@@ -6,6 +6,7 @@
 
 ## Table of contents
 
+- [Repository layout](#repository-layout)
 - [Features](#features)
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
@@ -21,6 +22,39 @@
 - [Troubleshooting](#troubleshooting)
 - [Limitations](#limitations)
 - [Roadmap](#roadmap)
+
+---
+
+## Repository layout
+
+This repo is an **npm workspaces** monorepo:
+
+```text
+.
+├── apps/
+│   ├── web/                 # React + Vite + TypeScript SPA (`@academia-shield/web`)
+│   │   ├── public/          # Static assets (served as-is)
+│   │   ├── src/
+│   │   │   ├── components/  # UI + layout
+│   │   │   ├── pages/       # Route screens
+│   │   │   ├── lib/         # API client and shared clients
+│   │   │   ├── App.tsx
+│   │   │   ├── main.tsx     # Entry (mounted from index.html)
+│   │   │   ├── types.ts
+│   │   │   └── constants.ts # Mock / demo data used by some views
+│   │   ├── index.html
+│   │   └── vite.config.ts
+│   └── api/                 # Express + MongoDB API (`@academia-shield/api`)
+│       └── src/             # routes, controllers, models, middleware, scripts
+├── services/
+│   └── agent/               # Python hosts-file agent (stdlib)
+├── scripts/
+│   └── demo/                # Optional API walkthrough script (`demo_flow.py`)
+├── package.json             # Workspace root (orchestrates dev/build)
+└── README.md
+```
+
+Install once at the **repository root**; dependencies for `apps/web` and `apps/api` are linked via workspaces.
 
 ---
 
@@ -74,9 +108,9 @@ flowchart LR
 
 - **Node.js** 18+ and npm
 - **MongoDB** connection string (Atlas or self-hosted)
-- **Python 3** (for `agent/` and optional `demo/`)
+- **Python 3** (for `services/agent/` and optional `scripts/demo/`)
 - **Administrator / root** on student machines when running the agent (hosts file access)
-- For student OTP email: SMTP-capable credentials (see `.env.example`)
+- For student OTP email: SMTP-capable credentials (see `apps/api/.env.example`)
 
 ---
 
@@ -89,27 +123,26 @@ git clone https://github.com/SanskarG-20/IPD---Academia-Shield.git
 cd IPD---Academia-Shield
 
 npm install
-cd server && npm install && cd ..
 ```
 
 ### 2. Environment files
 
-Copy the server example and fill in real values:
+Copy the API example and fill in real values:
 
 ```bash
-cp server/.env.example server/.env
+cp apps/api/.env.example apps/api/.env
 ```
 
-For optional Gemini features in the UI, create a root `.env` (Vite):
+For optional Gemini features in the UI, copy the web example (or create `apps/web/.env`):
 
-```env
-GEMINI_API_KEY=your_key_here
+```bash
+cp apps/web/.env.example apps/web/.env
+# set GEMINI_API_KEY=...
 ```
 
 ### 3. Seed demo data
 
 ```bash
-cd server
 npm run seed
 ```
 
@@ -118,8 +151,7 @@ You should see output confirming the demo professor, rules, and a sample session
 ### 4. Smoke-test the API
 
 ```bash
-cd server
-npm run dev
+npm run dev:api
 ```
 
 Open `http://localhost:5000/api/agent/config` — a typical idle response includes `blocking_active: false` and empty `domains` / `apps` arrays.
@@ -128,7 +160,7 @@ Open `http://localhost:5000/api/agent/config` — a typical idle response includ
 
 ## Configuration
 
-### Backend (`server/.env`)
+### Backend (`apps/api/.env`)
 
 | Variable | Purpose |
 | --- | --- |
@@ -138,40 +170,41 @@ Open `http://localhost:5000/api/agent/config` — a typical idle response includ
 | `CLIENT_URL` | Allowed browser origin context (e.g. `http://localhost:3000`) |
 | `EMAIL_*` | Nodemailer transport for student OTP emails |
 
-Never commit `.env`. Use `server/.env.example` as the template.
+Never commit `.env`. Use `apps/api/.env.example` as the template.
 
 ### Frontend API base URL
 
-In **`api.ts`**, set `BASE_URL` to your API origin:
+In **`apps/web/src/lib/api.ts`**, set `BASE_URL` to your API origin:
 
 - Local: `http://localhost:5000`
 - LAN / hotspot: `http://<professor-machine-ip>:5000`
 
 ### Agent
 
-In **`agent/agent.py`**, set `SERVER_IP` (and optionally `SERVER_PORT`) to match the machine running the API.
+In **`services/agent/agent.py`**, set `SERVER_IP` (and optionally `SERVER_PORT`) to match the machine running the API.
 
 ---
 
 ## Running the stack
 
-| Terminal | Command | Notes |
+| Mode | Command | Notes |
 | --- | --- | --- |
-| 1 — API | `cd server && npm run dev` | Listens on `PORT` (default 5000) |
-| 2 — Web | `npm run dev` | Vite dev server (see `vite.config.ts`, default port 3000) |
-| 3 — Agent | `python agent/agent.py` | Use `sudo` (macOS/Linux) or elevated shell (Windows) |
+| API + Web (one terminal) | `npm run dev` | Runs API and Vite together via `concurrently` |
+| API only | `npm run dev:api` | Default `PORT` from `apps/api/.env` (5000) |
+| Web only | `npm run dev:web` | Vite — `apps/web/vite.config.ts`, port 3000 |
+| Agent | `python services/agent/agent.py` | Use `sudo` (macOS/Linux) or elevated shell (Windows) |
 
 Optional:
 
 ```bash
-python demo/demo_flow.py
+python scripts/demo/demo_flow.py
 ```
 
 ---
 
 ## Demo account
 
-After `npm run seed` in `server/`:
+After `npm run seed`:
 
 - **Email:** `dr.sharma@university.edu`  
 - **Password:** `demo1234`
@@ -181,8 +214,8 @@ After `npm run seed` in `server/`:
 ## Classroom / LAN setup
 
 1. On the professor machine, note the hotspot or LAN IPv4 address (Windows: `ipconfig`; macOS: `ifconfig` / `ipconfig getifaddr en0`).
-2. Set **`api.ts`** → `BASE_URL` to `http://<that-ip>:5000`.
-3. Set **`agent/agent.py`** → `SERVER_IP` to the same IP.
+2. Set **`apps/web/src/lib/api.ts`** → `BASE_URL` to `http://<that-ip>:5000`.
+3. Set **`services/agent/agent.py`** → `SERVER_IP` to the same IP.
 4. Ensure the API is reachable from student devices (firewall rules as needed).
 
 ---
@@ -214,22 +247,25 @@ Health: `GET /` on the API root returns a short status string.
 
 ## Scripts
 
-### Frontend (repository root)
+### Workspace root (`package.json`)
 
 | Script | Description |
 | --- | --- |
-| `npm run dev` | Start Vite dev server |
-| `npm run build` | Production build to `dist/` |
-| `npm run preview` | Preview production build |
+| `npm run dev` | API + web in parallel |
+| `npm run dev:api` | API only (`@academia-shield/api`) |
+| `npm run dev:web` | Vite dev server (`@academia-shield/web`) |
+| `npm run build` | Build web, then compile API to `apps/api/dist/` |
+| `npm run build:web` / `npm run build:api` | Individual package builds |
+| `npm run preview` | Preview Vite production build |
+| `npm run seed` | Run `seedDemo.ts` in the API package |
+| `npm run start:api` | Run compiled API (`node apps/api/dist/server.js` after `build:api`) |
 
-### Backend (`server/`)
+### Per package
 
-| Script | Description |
+| Location | Typical commands |
 | --- | --- |
-| `npm run dev` | Run API with `ts-node-dev` (watch) |
-| `npm run build` | Compile TypeScript to `server/dist/` |
-| `npm start` | Run compiled `dist/server.js` |
-| `npm run seed` | Populate demo data via `seedDemo.ts` |
+| `apps/web` | `npm run dev`, `npm run build`, `npm run preview` |
+| `apps/api` | `npm run dev`, `npm run build`, `npm start`, `npm run seed` |
 
 ---
 
@@ -239,9 +275,9 @@ Health: `GET /` on the API root returns a short status string.
 | --- | --- |
 | Agent `PermissionError` | Run elevated (Administrator / `sudo`). |
 | Agent cannot reach server | `SERVER_IP`, firewall, and that the API is bound to `0.0.0.0` if accessing from other hosts. |
-| Browser errors / failed fetches | `BASE_URL` in `api.ts` must match the API URL students and professors use. |
+| Browser errors / failed fetches | `BASE_URL` in `apps/web/src/lib/api.ts` must match the API URL students and professors use. |
 | MongoDB errors | `MONGO_URI`, Atlas IP allowlist, and cluster user permissions. |
-| Port already in use | Change `PORT` in `server/.env` and update clients accordingly. |
+| Port already in use | Change `PORT` in `apps/api/.env` and update clients accordingly. |
 
 ---
 
@@ -270,4 +306,4 @@ Issues and pull requests are welcome. Please keep changes focused, match existin
 
 ## License
 
-This repository is marked **private** in `package.json`. Add a `LICENSE` file at the root if you intend to open-source the project.
+The workspace root `package.json` is **private**. Add a root `LICENSE` file if you intend to open-source the project.

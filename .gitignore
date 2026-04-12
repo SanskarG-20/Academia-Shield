@@ -1,3 +1,14 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+**/dist
+
+# Vite
+*.local
+
 # Logs
 logs
 *.log
@@ -7,12 +18,15 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Environment — never commit secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+apps/api/.env
+apps/web/.env
 
-# Editor directories and files
+# Editor / OS
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -22,3 +36,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Agent runtime cache (optional)
+services/agent/last_config.json
