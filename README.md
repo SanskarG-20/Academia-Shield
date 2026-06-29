@@ -61,10 +61,12 @@ Install once at the **repository root**; dependencies for `apps/web` and `apps/a
 ## Features
 
 - **Professor dashboard** — sessions, rules, batches, logs, and live monitoring (role-gated in the UI).
+- **Real-time LiveLogs** — Instant, WebSocket-powered telemetry stream directly from student devices to the professor's dashboard.
 - **Student flows** — SAP ID + OTP email verification, profile and batch join paths.
+- **Automated Working Mode** — Students enter a session and their activity is automatically simulated in the background to demonstrate agent telemetry.
 - **Policy engine (server)** — active sessions within their time window drive merged block lists for the agent.
-- **Desktop agent** — cross-platform Python (stdlib), configurable poll interval, hosts-file apply/remove with a tagged block section.
-- **Optional AI** — session summaries can use the Google GenAI SDK when `GEMINI_API_KEY` is set in the frontend environment (see [Vite env](https://vitejs.dev/guide/env-and-mode.html)).
+- **Desktop agent** — cross-platform Python (stdlib), configurable poll interval, hosts-file apply/remove with a tagged block section, and real-time activity reporting back to the API.
+- **Optional AI** — session summaries use Google Gemini to analyze actual session logs and detect policy violations (set `VITE_GEMINI_API_KEY` in frontend environment).
 
 ---
 
@@ -86,8 +88,8 @@ flowchart LR
   AGENT --> HOSTS[OS hosts file]
 ```
 
-**Control plane:** the web app talks to the API with JWTs for authenticated routes.  
-**Enforcement plane:** the agent calls **unauthenticated** `GET /api/agent/config` on a timer, then adds or removes `0.0.0.0` (or equivalent) entries for listed domains.
+**Control plane:** the web app talks to the API with JWTs for authenticated routes, and receives real-time telemetry updates via **WebSocket (Socket.IO)**.  
+**Enforcement plane:** the agent calls **unauthenticated** `GET /api/agent/config` on a timer to pull policies, and posts activity back to `POST /api/agent/report` to log violations.
 
 ---
 
@@ -99,7 +101,7 @@ flowchart LR
 | Backend | Node.js, Express 4, TypeScript, Mongoose, Helmet, Morgan, CORS |
 | Database | MongoDB (e.g. Atlas) |
 | Auth | JWT (30-day expiry), bcrypt password hashing |
-| Real-time | Socket.IO wired on the server (push-based blocking is a roadmap item) |
+| Real-time | Socket.IO (WebSockets) for instant LiveLogs streaming |
 | Agent | Python 3, standard library only |
 
 ---
@@ -258,9 +260,10 @@ Notes:
 
 ## Python agent
 
-- **Poll interval:** 30 seconds by default (`POLL_INTERVAL` in `agent.py`).
+- **Poll interval:** 8 seconds by default (`POLL_INTERVAL` in `agent.py`).
 - **Cache:** writes `last_config.json` when the server is unreachable so the last known policy can still be applied conservatively (see agent logs).
-- **Hosts file:** uses a marker comment (e.g. `# academia-shield`) so blocks can be removed cleanly when sessions end.
+- **Reporting:** Reports back to the API (`POST /api/agent/report`) when domains are blocked or unblocked, populating the professor's real-time LiveLogs.
+- **Hosts file:** uses a marker comment (e.g. `# ACADEMIA_SHIELD_START`) so blocks can be removed cleanly when sessions end.
 
 ---
 
@@ -332,8 +335,8 @@ Health: `GET /` on the API root returns a short status string.
 ## Roadmap
 
 - DNS-level enforcement to reduce reliance on local admin.
-- Push-based updates (e.g. WebSocket) to replace or complement polling.
 - Browser extension and stronger application-level controls.
+- Push-based agent updates to replace polling.
 - Deeper analytics and optional AI-assisted anomaly detection.
 
 ---
