@@ -5,6 +5,7 @@ import Rule from '../models/Rule';
 import Log from '../models/Log';
 import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
+import { emitLogEntries } from '../services/socketService';
 
 const parseBoolean = (value: string | undefined, fallback = false) => {
   if (typeof value !== 'string') {
@@ -212,6 +213,9 @@ export const reportAgentActivity = async (req: Request, res: Response) => {
     }
 
     const inserted = await Log.insertMany(logEntries);
+
+    // Broadcast new logs to connected WebSocket clients (professors watching LiveLogs).
+    emitLogEntries(inserted);
 
     console.log(
       `[agent-report] agent=${agentName} action=${reportAction} domains=${reportedDomains.length} sessions=${activeSessions.length} logs=${inserted.length}`

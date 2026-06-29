@@ -3,6 +3,7 @@ import Log from '../models/Log';
 import Session from '../models/Session';
 import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
+import { emitLogEntry } from '../services/socketService';
 
 // @desc    Save Logs (Usage or Event)
 // @route   POST /api/logs
@@ -27,6 +28,9 @@ export const createLog = async (req: Request | any, res: Response) => {
       engagementScore,
       isViolation: Boolean(isViolation),
     });
+
+    // Broadcast to connected WebSocket clients.
+    emitLogEntry(log);
 
     return sendSuccess(res, log, 'Log created successfully', 201);
   } catch (err: any) {
