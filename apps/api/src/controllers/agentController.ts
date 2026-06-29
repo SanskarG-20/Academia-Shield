@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import Session from '../models/Session';
 import Rule from '../models/Rule';
+import Log from '../models/Log';
+import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
 
 const parseBoolean = (value: string | undefined, fallback = false) => {
@@ -119,5 +122,112 @@ export const getAgentConfig = async (req: Request, res: Response) => {
     );
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to fetch agent config', 500);
+  }
+};
+
+// @desc    Receive blocking activity reports from the desktop agent (NO AUTH)
+// @route   POST /api/agent/report
+export const reportAgentActivity = async (req: Request, res: Response) => {
+  try {
+    const {
+      agentId,
+      sapId,
+      action,
+      domains,
+    } = req.body || {};
+
+    const agentName = String(agentId || 'unknown-agent').trim();
+    const reportAction = String(action || 'BLOCK_APPLIED').trim();
+    const reportedDomains: string[] = Array.isArray(domains)
+      ? domains.map((d: any) => String(d).trim().toLowerCase()).filter(Boolean)
+      : [];
+
+    // Resolve student if sapId was provided.
+    let studentId: mongoose.Types.ObjectId | null = null;
+    let studentName = agentName;
+
+    if (sapId) {
+      const student = await Student.findOne({ sapId: String(sapId).trim() }).select('_id name');
+      if (student) {
+        studentId = student._id as mongoose.Types.ObjectId;
+        studentName = student.name || agentName;
+      }
+    }
+
+    // If no student was resolved, use a deterministic placeholder ObjectId derived from agentId.
+    if (!studentId) {
+      const hex = Buffer.from(agentName.padEnd(12, '0').slice(0, 12)).toString('hex').slice(0, 24);
+      studentId = new mongoose.Types.ObjectId(hex);
+    }
+
+    // Find active sessions (same criteria as getAgentConfig).
+    const now = new Date();
+    const activeSessions = await Session.find({
+      status: 'Active',
+      startTime: { $lte: now },
+      endTime: { $gte: now },
+    }).select('_id title');
+
+    if (activeSessions.length === 0) {
+      return sendSuccess(res, { logged: 0 }, 'No active sessions; report acknowledged');
+    }
+
+    // Determine log type and violation flag based on the action.
+    const isBlock = reportAction === 'BLOCK_APPLIED';
+    const logType: 'EVENT' | 'USAGE' | 'ANOMALY' = isBlock ? 'EVENT' : 'EVENT';
+    const isViolation = isBlock;
+
+    // Create one log entry per domain per active session.
+    const logEntries: any[] = [];
+
+    for (const session of activeSessions) {
+      if (reportedDomains.length === 0) {
+        // Action with no specific domains (e.g. BLOCK_REMOVED, standby).
+        logEntries.push({
+          sessionId: session._id,
+          studentId,
+          studentName,
+          type: 'EVENT',
+          resource: 'system',
+          details: `Agent ${reportAction.toLowerCase().replace(/_/g, ' ')} (${agentName})`,
+          engagementScore: isBlock ? 0 : 100,
+          isViolation: false,
+          timestamp: now,
+        });
+      } else {
+        for (const domain of reportedDomains) {
+          logEntries.push({
+            sessionId: session._id,
+            studentId,
+            studentName,
+            type: logType,
+            resource: domain,
+            details: `Agent blocked access to ${domain} (${agentName})`,
+            engagementScore: isBlock ? 10 : 90,
+            isViolation,
+            timestamp: now,
+          });
+        }
+      }
+    }
+
+    const inserted = await Log.insertMany(logEntries);
+
+    console.log(
+      `[agent-report] agent=${agentName} action=${reportAction} domains=${reportedDomains.length} sessions=${activeSessions.length} logs=${inserted.length}`
+    );
+
+    return sendSuccess(
+      res,
+      {
+        logged: inserted.length,
+        sessions: activeSessions.length,
+        action: reportAction,
+      },
+      'Agent activity logged successfully',
+      201
+    );
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to log agent activity', 500);
   }
 };

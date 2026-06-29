@@ -1,9 +1,10 @@
 import express from 'express';
-import { getAgentConfig } from '../controllers/agentController';
+import { getAgentConfig, reportAgentActivity } from '../controllers/agentController';
 
 const router = express.Router();
 
-// No auth — open endpoint for desktop agent polling
+// No auth — open endpoints for desktop agent polling and reporting
 router.get('/config', getAgentConfig);
+router.post('/report', reportAgentActivity);
 
 export default router;

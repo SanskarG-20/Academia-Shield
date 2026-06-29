@@ -28,6 +28,7 @@ RETRY_ATTEMPTS = int(os.getenv("RETRY_ATTEMPTS", "3"))
 RETRY_BACKOFF_SECONDS = int(os.getenv("RETRY_BACKOFF_SECONDS", "2"))
 
 AGENT_ID = os.getenv("AGENT_ID", socket.gethostname())
+STUDENT_SAP_ID = os.getenv("STUDENT_SAP_ID", "").strip()
 
 CACHE_FILE = "last_config.json"
 BACKUP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hosts.backup")
@@ -297,16 +298,46 @@ def apply_domains_to_hosts(domains):
         return False
 
 
+def report_to_server(action, domains=None):
+    """POST blocking activity back to the API so professors see live logs."""
+    try:
+        payload = json.dumps({
+            "agentId": AGENT_ID,
+            "sapId": STUDENT_SAP_ID or None,
+            "action": action,
+            "domains": list(domains or []),
+        }).encode("utf-8")
+
+        url = f"http://{SERVER_IP}:{SERVER_PORT}/api/agent/report"
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            logged = data.get("data", {}).get("logged", 0)
+            LOGGER.info("Reported %s to server | logged=%s entries", action, logged)
+
+    except Exception as err:
+        # Reporting is best-effort; never block the main enforcement loop.
+        LOGGER.warning("Report to server failed (non-fatal): %s", err)
+
+
 def block_domains(domains):
     normalized_domains = normalize_domain_list(domains)
     LOGGER.info("Domains fetched from API (%s): %s", len(normalized_domains), ", ".join(normalized_domains) if normalized_domains else "(none)")
     LOGGER.info("Rewriting hosts file with domains: %s", normalized_domains)
     apply_domains_to_hosts(normalized_domains)
+    report_to_server("BLOCK_APPLIED", normalized_domains)
 
 
 def unblock_domains():
     LOGGER.info("Restore triggered: removing managed hosts entries.")
     apply_domains_to_hosts([])
+    report_to_server("BLOCK_REMOVED")
 
 
 def sync_hosts_once():
@@ -353,6 +384,7 @@ def main():
     LOGGER.info("Polling interval: %ss", POLL_INTERVAL)
     LOGGER.info("Hosts file: %s", HOSTS_FILE)
     LOGGER.info("Backup file: %s", BACKUP_FILE)
+    LOGGER.info("Student SAP ID: %s", STUDENT_SAP_ID or "(not set — logs will use agent hostname)")
     LOGGER.info("----------------------------------------")
 
     # Apply immediately on startup to ensure restart reliability.
