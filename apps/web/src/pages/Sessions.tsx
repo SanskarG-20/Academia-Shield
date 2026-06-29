@@ -22,6 +22,7 @@ import {
   getMyBatches,
   getRules,
   getSessions,
+  getLogs,
   joinBatch,
   updateSessionStatus,
 } from '../lib/api';
@@ -162,15 +163,37 @@ export const Sessions: React.FC = () => {
     setSummaryModalOpen(true);
 
     try {
-      const apiKey =
-        (process as any)?.env?.API_KEY || (process as any)?.env?.GEMINI_API_KEY;
+      // 1. Get API Key robustly
+      const apiKey = 
+        (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+        (process as any)?.env?.GEMINI_API_KEY ||
+        (process as any)?.env?.API_KEY;
 
       if (!apiKey) {
-        setAiSummary('Gemini API key is missing. Set GEMINI_API_KEY in web .env.');
+        setAiSummary('Gemini API key is missing. Set VITE_GEMINI_API_KEY in apps/web/.env.');
         return;
       }
 
       const ai = new GoogleGenAI({ apiKey });
+
+      // 2. Fetch session logs
+      let logsText = 'No logs available for this session.';
+      try {
+        const sessionLogs = await getLogs(session._id);
+        if (sessionLogs && sessionLogs.length > 0) {
+          const blocks = sessionLogs.filter((l) => l.isViolation).length;
+          const resources = [...new Set(sessionLogs.map((l) => l.resource))].filter((r) => r !== 'system').join(', ');
+          
+          logsText = `Total Log Entries: ${sessionLogs.length}
+Total Blocked Violations: ${blocks}
+Resources Interacted/Blocked: ${resources || 'None'}`;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch logs for summary', err);
+        logsText = 'Failed to load logs for this session.';
+      }
+
+      // 3. Prepare data
       const batchNames =
         session.batchIds
           ?.map((batchId) => batchNameById[batchId])
@@ -178,7 +201,7 @@ export const Sessions: React.FC = () => {
           .join(', ') || 'Public (No batches)';
 
       const prompt = `
-Please generate a concise, professional summary for this academic session.
+Please generate a concise, professional summary for this academic session based on the provided details. Mention if there were any policy violations.
 
 Details:
 Title: ${session.title}
@@ -188,16 +211,20 @@ Start Time: ${new Date(session.startTime).toLocaleString()}
 End Time: ${new Date(session.endTime).toLocaleString()}
 Status: ${session.status}
 Assigned Classes: ${batchNames}
+
+Session Activity Data:
+${logsText}
 `;
 
+      // 4. Call Gemini
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
       });
 
       setAiSummary(response.text || 'No summary was generated.');
-    } catch (err) {
-      setAiSummary('Failed to generate summary. Please try again.');
+    } catch (err: any) {
+      setAiSummary(`Failed to generate summary: ${err.message || 'Unknown error'}. Please try again.`);
     } finally {
       setIsGeneratingSummary(false);
     }
