@@ -113,7 +113,7 @@ export const LoginProfessor: React.FC = () => {
 
         <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-700 text-center">
           <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
-            Demo: dr.sharma@university.edu / demo1234
+            Demo: demo@professor.com / password123
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
             Not a professor?

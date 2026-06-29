@@ -8,39 +8,42 @@ import Session from '../models/Session';
 import Rule from '../models/Rule';
 import Log from '../models/Log';
 import Otp from '../models/Otp';
+import { connectDB } from '../config/db';
+
+const DEMO_EMAIL = 'demo@professor.com';
+const DEMO_PASSWORD = 'password123';
+const LEGACY_DEMO_EMAIL = 'dr.sharma@university.edu';
+const DEMO_STUDENT_SAP_ID = '600000001234';
 
 const run = async () => {
   try {
-    await mongoose.connect(
-      process.env.MONGO_URI || 'mongodb://localhost:27017/academia-shield',
-      { serverSelectionTimeoutMS: 5000 }
-    );
+    await connectDB();
     console.log('🔗 Connected to MongoDB\n');
 
-    // ─── STEP 1: Clear existing data ────────────────────────────────────────
+    // Remove current and legacy demo professor accounts before creating fresh demo data.
+    await Professor.deleteMany({ email: { $in: [DEMO_EMAIL, LEGACY_DEMO_EMAIL] } });
     await Promise.all([
-      Professor.deleteMany({}),
-      Student.deleteMany({}),
-      Batch.deleteMany({}),
-      Session.deleteMany({}),
-      Rule.deleteMany({}),
+      Batch.deleteMany({ code: 'CE-SY-2024' }),
+      Session.deleteMany({ title: 'Data Structures - Unit 3' }),
+      Rule.deleteMany({ name: { $in: ['Social Media Block', 'Entertainment Block'] } }),
       Log.deleteMany({}),
       Otp.deleteMany({}),
+      Student.deleteMany({ sapId: DEMO_STUDENT_SAP_ID }),
     ]);
-    console.log('🗑️  Cleared existing data');
+    console.log('🧹 Cleared old demo records');
 
-    // ─── STEP 2: Create Professor ────────────────────────────────────────────
-    const passwordHash = await bcrypt.hash('demo1234', 10);
+    // ─── STEP 1: Create Demo Professor ──────────────────────────────────────
+    const hashed = await bcrypt.hash(DEMO_PASSWORD, 10);
     const professor = await Professor.create({
-      name: 'Dr. Sharma',
-      email: 'dr.sharma@university.edu',
-      passwordHash,
+      name: 'Demo Professor',
+      email: DEMO_EMAIL,
+      passwordHash: hashed,
       department: 'Computer Engineering',
-      designation: 'AP',
+      designation: 'Professor',
     });
-    console.log('✅ Professor created → dr.sharma@university.edu / demo1234');
+    console.log('✅ Demo professor created');
 
-    // ─── STEP 3: Create Batch ────────────────────────────────────────────────
+    // ─── STEP 2: Create Batch ────────────────────────────────────────────────
     const batch = await Batch.create({
       name: 'Computer Engineering - SY',
       code: 'CE-SY-2024',
@@ -51,8 +54,8 @@ const run = async () => {
     });
     console.log('✅ Batch created → CE-SY-2024');
 
-    // ─── STEP 4: Create Rules ────────────────────────────────────────────────
-    const [rule1, rule2] = await Rule.insertMany([
+    // ─── STEP 3: Create Rules ────────────────────────────────────────────────
+    const [rule1] = await Rule.insertMany([
       {
         name: 'Social Media Block',
         mode: 'Blocklist',
@@ -70,7 +73,7 @@ const run = async () => {
     ]);
     console.log('✅ 2 Rules created');
 
-    // ─── STEP 5: Create Session ──────────────────────────────────────────────
+    // ─── STEP 4: Create Session ──────────────────────────────────────────────
     const today = new Date();
     const startTime = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10, 0, 0);
     const endTime   = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 11, 0, 0);
@@ -88,12 +91,24 @@ const run = async () => {
     });
     console.log('✅ Session created → Data Structures - Unit 3');
 
+    // ─── STEP 5: Create Student ──────────────────────────────────────────────
+    await Student.create({
+      sapId: DEMO_STUDENT_SAP_ID,
+      name: 'Demo Student',
+      email: `${DEMO_STUDENT_SAP_ID}@student.university.edu`,
+      department: 'Computer Engineering',
+      rollNumber: 'A01',
+      year: '2',
+      joinedBatches: [batch._id],
+    });
+    console.log(`✅ Demo student created → SAP ID ${DEMO_STUDENT_SAP_ID}`);
+
     // ─── STEP 6: Summary ─────────────────────────────────────────────────────
     const pad = '━'.repeat(33);
     console.log(`\n${pad}`);
     console.log('🎓 ACADEMIA SHIELD — DEMO SEED COMPLETE');
     console.log(pad);
-    console.log('Login:    dr.sharma@university.edu / demo1234');
+    console.log(`Login:    ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
     console.log('Batch:    CE-SY-2024');
     console.log('Rules:    Social Media Block, Entertainment Block');
     console.log(`Session:  Data Structures - Unit 3 (10:00–11:00, today)`);
@@ -101,13 +116,14 @@ const run = async () => {
 
   } catch (err: any) {
     console.error('❌ Seed failed:', err.message);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     // ─── STEP 7: Close connection ─────────────────────────────────────────────
-    await mongoose.connection.close();
-    console.log('🔌 DB connection closed.');
-    process.exit(0);
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+      console.log('🔌 DB connection closed.');
+    }
   }
 };
 
-run();
+void run();

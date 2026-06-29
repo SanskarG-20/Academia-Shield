@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { Modal } from './ui/Modal';
 import { Input, Select } from './ui/Input';
 import { Button } from './ui/Button';
-import { SessionType, RuleSet } from '../types';
-import { MOCK_BATCHES } from '../constants';
+import { Batch, SessionType, RuleSet } from '../types';
 
 interface CreateSessionModalProps {
   isOpen: boolean;
   onClose: () => void;
   rules: RuleSet[];
+  batches: Batch[];
   onCreate: (formData: any) => Promise<void>;
 }
 
@@ -16,8 +16,11 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   isOpen,
   onClose,
   rules,
+  batches,
   onCreate,
 }) => {
+  console.log('rendering form');
+
   const [newSession, setNewSession] = useState({
     title: '',
     course: '',
@@ -30,7 +33,8 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     setIsLoading(true);
     try {
       const formData = {
@@ -69,14 +73,14 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       title="Create New Session"
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} disabled={isLoading}>Cancel</Button>
-          <Button onClick={handleSubmit} disabled={isLoading}>
+          <Button type="button" variant="secondary" onClick={onClose} disabled={isLoading}>Cancel</Button>
+          <Button type="submit" form="create-session-form" disabled={isLoading}>
             {isLoading ? 'Creating...' : 'Create Session'}
           </Button>
         </>
       }
     >
-      <div className="space-y-4 max-h-[60vh] overflow-y-auto px-1">
+      <form id="create-session-form" onSubmit={handleSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto px-1">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
             label="Session Title"
@@ -129,7 +133,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
           label="Rule Set (Policy)"
           options={[
             { value: '', label: 'Select a Rule Set...' },
-            ...rules.map(r => ({ value: (r as any)._id || r.id, label: r.name }))
+            ...rules.map(r => ({ value: r._id, label: r.name }))
           ]}
           value={newSession.ruleSetId}
           onChange={e => setNewSession({...newSession, ruleSetId: e.target.value})}
@@ -138,21 +142,21 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
         <div className="space-y-2">
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Assign to Classes (Batches)</label>
           <div className="grid grid-cols-2 gap-2">
-            {MOCK_BATCHES.map(batch => (
-              <label key={batch.id} className={`flex items-center p-3 rounded-lg border cursor-pointer transition-colors ${
-                newSession.selectedBatchIds.includes(batch.id)
+            {batches.map(batch => (
+              <label key={batch._id} className={`flex items-center p-3 rounded-lg border cursor-pointer transition-colors ${
+                newSession.selectedBatchIds.includes(batch._id)
                   ? 'bg-brand-50 border-brand-200 dark:bg-brand-900/20 dark:border-brand-700'
                   : 'bg-slate-50 border-slate-200 dark:bg-slate-900 dark:border-slate-700'
               }`}>
                 <input
                   type="checkbox"
                   className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 mr-3"
-                  checked={newSession.selectedBatchIds.includes(batch.id)}
+                  checked={newSession.selectedBatchIds.includes(batch._id)}
                   onChange={(e) => {
                     if (e.target.checked) {
-                      setNewSession(prev => ({...prev, selectedBatchIds: [...prev.selectedBatchIds, batch.id]}));
+                      setNewSession(prev => ({...prev, selectedBatchIds: [...prev.selectedBatchIds, batch._id]}));
                     } else {
-                      setNewSession(prev => ({...prev, selectedBatchIds: prev.selectedBatchIds.filter(id => id !== batch.id)}));
+                      setNewSession(prev => ({...prev, selectedBatchIds: prev.selectedBatchIds.filter(id => id !== batch._id)}));
                     }
                   }}
                 />
@@ -164,7 +168,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
             ))}
           </div>
         </div>
-      </div>
+      </form>
     </Modal>
   );
 };

@@ -206,8 +206,44 @@ python scripts/demo/demo_flow.py
 
 After `npm run seed`:
 
-- **Email:** `dr.sharma@university.edu`  
-- **Password:** `demo1234`
+- **Email:** `demo@professor.com`  
+- **Password:** `password123`
+- **Student SAP ID:** `600000001234`
+- **Student OTP (when `STUDENT_OTP_MODE=mock`):** `123456`
+
+---
+
+## Single-machine demo flow
+
+Use this mode to test professor, student, and agent together on one laptop.
+
+1. Start backend + frontend:
+
+```bash
+npm run dev
+```
+
+2. Seed demo records:
+
+```bash
+npm run seed
+```
+
+3. Open professor login in a normal browser window and sign in with `demo@professor.com / password123`.
+4. Open student login in an Incognito/Private window and sign in with SAP ID `600000001234` and OTP `123456`.
+5. Student joins class code `CE-SY-2024`.
+6. Professor creates or opens a session and clicks **Start** so status becomes `Active`.
+7. Run the local agent:
+
+```bash
+python services/agent/agent.py
+```
+
+8. Open `youtube.com` or `instagram.com` to verify block, then end session to verify unblock.
+
+Notes:
+- `TEST_MODE=true` in `apps/api/.env` allows local agent polling without strict device allowlisting.
+- Use separate browser contexts (normal + incognito) to keep professor and student JWT/localStorage independent.
 
 ---
 
@@ -278,6 +314,10 @@ Health: `GET /` on the API root returns a short status string.
 | Browser errors / failed fetches | `BASE_URL` in `apps/web/src/lib/api.ts` must match the API URL students and professors use. |
 | MongoDB errors | `MONGO_URI`, Atlas IP allowlist, and cluster user permissions. |
 | Port already in use | Change `PORT` in `apps/api/.env` and update clients accordingly. |
+| Student OTP email fails in local demo | Set `STUDENT_OTP_MODE=mock` and use `MOCK_STUDENT_OTP` from `apps/api/.env`. |
+| Professor/student sessions collide | Use normal window for professor and Incognito/Private window for student. |
+| Session marked Active but agent shows standby | Ensure the session was started from UI and check `GET /api/agent/config` for `active: true`. |
+| Blocked domain still opens | Flush DNS (`ipconfig /flushdns` on Windows) and retry in a fresh tab/private window. |
 
 ---
 

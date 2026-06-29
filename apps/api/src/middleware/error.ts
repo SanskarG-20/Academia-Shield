@@ -4,7 +4,9 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
   res.status(statusCode);
   res.json({
-    message: err.message,
+    success: false,
+    data: null,
+    message: err.message || 'Internal server error',
     stack: process.env.NODE_ENV === 'production' ? null : err.stack,
   });
 };

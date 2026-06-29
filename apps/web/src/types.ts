@@ -14,54 +14,76 @@ export enum SessionStatus {
 }
 
 export interface RuleSet {
-  id: string;
+  _id: string;
   name: string;
   mode: 'Blocklist' | 'Whitelist';
   websites: string[];
   applications: string[];
+  professorId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BatchStudent {
+  _id: string;
+  name: string;
+  sapId: string;
+  rollNumber: string;
+  email?: string;
+  department?: string;
+  year?: string;
 }
 
 export interface Batch {
-  id: string;
+  _id: string;
   name: string;
-  code: string; // The 6-char code students use to join
+  code: string;
   department: string;
   year: string;
-  studentCount: number;
-  createdBy: string;
+  professorId?: string;
+  students?: BatchStudent[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Session {
-  id: string;
+  _id: string;
   title: string;
   course: string;
-  type: SessionType;
+  type: SessionType | string;
   startTime: string;
   endTime: string;
-  status: SessionStatus;
-  ruleSetId: string;
-  batchIds?: string[]; // Optional for backward compatibility, but used for assignment
+  status: SessionStatus | string;
+  ruleSetId?: string;
+  batchIds: string[];
+  professorId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface LogEntry {
-  id: string;
+  _id: string;
+  type: 'USAGE' | 'EVENT' | 'ANOMALY';
   studentId: string;
   studentName: string;
   sessionId: string;
-  sessionName: string;
-  resourceAccessed: string;
-  isWhitelisted: boolean;
-  activeSeconds: number;     // Time tab was focused/active
-  backgroundSeconds: number; // Time tab was open but in background
-  windowSwitches: number;    // Number of times student switched away from this resource
-  engagementScore: number;
+  resource?: string;
+  details?: string;
+  duration?: number;
+  engagementScore?: number;
+  isViolation: boolean;
   timestamp: string;
 }
 
-export interface User {
-  id: string;
+export interface UserProfile {
+  _id: string;
   name: string;
   email: string;
-  role: 'Admin' | 'Professor' | 'Student';
-  avatar?: string;
+  role: 'student' | 'professor';
+  sapId?: string;
+  department?: string;
+  rollNumber?: string;
+  year?: string;
+  designation?: string;
+  joinedBatches?: Batch[];
 }

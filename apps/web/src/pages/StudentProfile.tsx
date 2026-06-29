@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { User, BookOpen, Hash, CheckCircle, Phone } from 'lucide-react';
 import { Input, Select } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { createStudentProfile } from '../lib/api';
 
 export const StudentProfile: React.FC = () => {
   const navigate = useNavigate();
@@ -27,19 +28,10 @@ export const StudentProfile: React.FC = () => {
     const storedSapId = localStorage.getItem('tempSapId');
     if (storedSapId) {
         setFormData(prev => ({ ...prev, sapId: storedSapId }));
+    } else {
+      navigate('/login/student');
     }
-    
-    // Pre-fill other data if available (edit mode)
-    const existingProfile = localStorage.getItem('studentProfile');
-    if (existingProfile) {
-        try {
-            const parsed = JSON.parse(existingProfile);
-            setFormData(prev => ({ ...prev, ...parsed }));
-        } catch (e) {
-            // ignore error
-        }
-    }
-  }, []);
+    }, [navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -47,7 +39,7 @@ export const StudentProfile: React.FC = () => {
     setError(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.fullName || !formData.department || !formData.rollNumber || !formData.yearOfStudy || !formData.sapId) {
@@ -57,24 +49,22 @@ export const StudentProfile: React.FC = () => {
 
     setIsLoading(true);
 
-    // Simulate API save
-    setTimeout(() => {
-      // 1. Save to active session
-      localStorage.setItem('userName', formData.fullName);
-      localStorage.setItem('studentProfile', JSON.stringify(formData));
-      
-      // 2. Save to PERSISTENT storage (Simulated DB)
-      // This allows the user to skip profile setup on next login
-      localStorage.setItem(`stored_student_${formData.sapId}`, JSON.stringify(formData));
+    try {
+      await createStudentProfile({
+        sapId: formData.sapId,
+        name: formData.fullName,
+        email: `${formData.sapId}@student.university.edu`,
+        department: formData.department,
+        rollNumber: formData.rollNumber,
+        year: formData.yearOfStudy,
+      });
 
-      // Remove temporary login data
-      localStorage.removeItem('tempPhoneNumber');
-      localStorage.removeItem('tempSapId');
-      
-      setIsLoading(false);
-      // Redirect to Join Batch page instead of direct session
       navigate('/student/join-batch');
-    }, 1500);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save profile.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

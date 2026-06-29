@@ -1,36 +1,52 @@
-﻿import React, { useState, useEffect } from 'react';
-import { GoogleGenAI } from "@google/genai";
+import React, { useEffect, useMemo, useState } from 'react';
+import { GoogleGenAI } from '@google/genai';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input, Select } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { Plus, Filter, Search, X, School, Sparkles, Loader2 as Spinner } from 'lucide-react';
-import { SessionStatus, SessionType, Session, RuleSet } from '../types';
-import { MOCK_BATCHES } from '../constants';
-import { getSessions, createSession, updateSessionStatus, getAgentConfig, getRules } from '../lib/api';
+import {
+  Plus,
+  Filter,
+  Search,
+  X,
+  School,
+  Sparkles,
+  Loader2 as Spinner,
+} from 'lucide-react';
+import { Batch, RuleSet, Session, SessionStatus, SessionType } from '../types';
+import {
+  createSession,
+  deleteSession,
+  getAgentConfig,
+  getBatches,
+  getMyBatches,
+  getRules,
+  getSessions,
+  joinBatch,
+  updateSessionStatus,
+} from '../lib/api';
 import { SessionCard } from '../components/SessionCard';
 import { CreateSessionModal } from '../components/CreateSessionModal';
 
 export const Sessions: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [rules, setRules] = useState<RuleSet[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
   const [agentConfig, setAgentConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false); // For students
+  const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Filter States
   const [isFiltersOpen, setIsFiltersOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
 
-  // AI Summary State
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [aiSummary, setAiSummary] = useState('');
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
@@ -38,25 +54,60 @@ export const Sessions: React.FC = () => {
   const userRole = localStorage.getItem('userRole');
   const isStudent = userRole === 'student';
 
-  async function fetchAll() {
+  const batchNameById = useMemo(() => {
+    return batches.reduce<Record<string, string>>((acc, batch) => {
+      acc[batch._id] = batch.name;
+      return acc;
+    }, {});
+  }, [batches]);
+
+  async function fetchAll(showLoadingState = false) {
     try {
-      const [s, r, a] = await Promise.all([getSessions(), getRules(), getAgentConfig()]);
-      setSessions(s);
-      setRules(r);
-      setAgentConfig(a);
-      setError("");
+      if (showLoadingState) {
+        setLoading(true);
+      }
+      setError('');
+
+      if (isStudent) {
+        const [sessionsData, agentData, myBatches] = await Promise.all([
+          getSessions(),
+          getAgentConfig(),
+          getMyBatches(),
+        ]);
+
+        setSessions(sessionsData);
+        setAgentConfig(agentData);
+        setBatches(myBatches);
+        setRules([]);
+      } else {
+        const [sessionsData, rulesData, agentData, professorBatches] = await Promise.all([
+          getSessions(),
+          getRules(),
+          getAgentConfig(),
+          getBatches(),
+        ]);
+
+        setSessions(sessionsData);
+        setRules(rulesData);
+        setAgentConfig(agentData);
+        setBatches(professorBatches);
+      }
     } catch (e: any) {
-      setError("Cannot reach server. Check IP in api.ts.");
+      setError(e.message || 'Cannot reach server. Check API URL and backend status.');
     } finally {
-      setLoading(false);
+      if (showLoadingState) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
-    fetchAll();
-    const interval = setInterval(fetchAll, 15000); // auto-refresh every 15s
+    fetchAll(true);
+    const interval = setInterval(() => {
+      fetchAll(false);
+    }, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isStudent]);
 
   useEffect(() => {
     const timeInterval = setInterval(() => setCurrentTime(new Date()), 5000);
@@ -65,73 +116,88 @@ export const Sessions: React.FC = () => {
 
   const handleCreateSession = async (formData: any) => {
     await createSession(formData);
-    await fetchAll();
+    await fetchAll(false);
   };
 
   const handleStatusChange = async (id: string, newStatus: string) => {
     try {
       await updateSessionStatus(id, newStatus);
-      await fetchAll();
+      await fetchAll(false);
     } catch (err: any) {
-      alert("Failed to update status: " + err.message);
+      alert(err.message || 'Failed to update status.');
     }
   };
 
   const handleDeleteSession = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this session?')) {
-      alert("Delete session functionality not wired in this step, but ID is " + id);
+    if (!window.confirm('Are you sure you want to delete this session?')) {
+      return;
+    }
+
+    try {
+      await deleteSession(id);
+      await fetchAll(false);
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete session.');
     }
   };
 
-  const handleJoinBatch = () => {
-    const batch = MOCK_BATCHES.find(b => b.code === joinCode.toUpperCase());
-    if (batch) {
-      const currentJoined = JSON.parse(localStorage.getItem('joinedBatches') || '[]');
-      if (!currentJoined.includes(batch.id)) {
-        localStorage.setItem('joinedBatches', JSON.stringify([...currentJoined, batch.id]));
-        alert(`Successfully joined ${batch.name}!`);
-      } else {
-        alert('You are already a member of this class.');
-      }
+  const handleJoinBatch = async () => {
+    if (!joinCode.trim()) {
+      return;
+    }
+
+    try {
+      await joinBatch(joinCode.trim().toUpperCase());
       setIsJoinModalOpen(false);
       setJoinCode('');
-    } else {
-      alert('Invalid Batch Code. Please check and try again.');
+      await fetchAll(false);
+    } catch (err: any) {
+      alert(err.message || 'Invalid class code. Please try again.');
     }
   };
 
-  const handleGenerateSummary = async (session: any) => {
+  const handleGenerateSummary = async (session: Session) => {
     setAiSummary('');
     setIsGeneratingSummary(true);
     setSummaryModalOpen(true);
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const batchNames = session.batchIds?.map((bid: string) => MOCK_BATCHES.find(b => b.id === bid)?.name).filter(Boolean).join(', ') || 'Public (No batches)';
-      
-      const prompt = `
-        Please generate a concise, professional summary for this academic session.
-        Structure the summary to be readable at a glance.
+      const apiKey =
+        (process as any)?.env?.API_KEY || (process as any)?.env?.GEMINI_API_KEY;
 
-        Details:
-        Title: ${session.title}
-        Course: ${session.course}
-        Type: ${session.type}
-        Start Time: ${new Date(session.startTime).toLocaleString()}
-        End Time: ${new Date(session.endTime).toLocaleString()}
-        Status: ${session.status}
-        Assigned Classes: ${batchNames}
-      `;
+      if (!apiKey) {
+        setAiSummary('Gemini API key is missing. Set GEMINI_API_KEY in web .env.');
+        return;
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
+      const batchNames =
+        session.batchIds
+          ?.map((batchId) => batchNameById[batchId])
+          .filter(Boolean)
+          .join(', ') || 'Public (No batches)';
+
+      const prompt = `
+Please generate a concise, professional summary for this academic session.
+
+Details:
+Title: ${session.title}
+Course: ${session.course}
+Type: ${session.type}
+Start Time: ${new Date(session.startTime).toLocaleString()}
+End Time: ${new Date(session.endTime).toLocaleString()}
+Status: ${session.status}
+Assigned Classes: ${batchNames}
+`;
 
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
       });
 
-      setAiSummary(response.text);
-    } catch (error) {
-      setAiSummary("Failed to generate summary. Please try again.");
-      console.error(error);
+      setAiSummary(response.text || 'No summary was generated.');
+    } catch (err) {
+      setAiSummary('Failed to generate summary. Please try again.');
     } finally {
       setIsGeneratingSummary(false);
     }
@@ -144,32 +210,42 @@ export const Sessions: React.FC = () => {
     setDateRange({ start: '', end: '' });
   };
 
-  const filteredSessions = sessions.filter((s: any) => {
-    if (isStudent) {
-      const joinedBatches = JSON.parse(localStorage.getItem('joinedBatches') || '[]');
-      // Show all for demo
-    }
-
+  const filteredSessions = sessions.filter((session) => {
     const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = s.title.toLowerCase().includes(searchLower) || s.course.toLowerCase().includes(searchLower);
-    const matchesStatus = statusFilter === 'All' || s.status.toLowerCase() === statusFilter.toLowerCase();
-    const matchesType = typeFilter === 'All' || s.type === typeFilter;
+    const matchesSearch =
+      session.title.toLowerCase().includes(searchLower) ||
+      session.course.toLowerCase().includes(searchLower);
+
+    const matchesStatus =
+      statusFilter === 'All' ||
+      String(session.status).toLowerCase() === statusFilter.toLowerCase();
+
+    const matchesType = typeFilter === 'All' || String(session.type) === typeFilter;
 
     let matchesDate = true;
     if (dateRange.start) {
-        const sessionDate = new Date(s.startTime);
-        const filterStart = new Date(dateRange.start);
-        filterStart.setHours(0,0,0,0);
-        matchesDate = matchesDate && sessionDate >= filterStart;
-    }
-    if (dateRange.end) {
-        const sessionDate = new Date(s.startTime);
-        const filterEnd = new Date(dateRange.end);
-        filterEnd.setHours(23, 59, 59, 999);
-        matchesDate = matchesDate && sessionDate <= filterEnd;
+      const sessionDate = new Date(session.startTime);
+      const filterStart = new Date(dateRange.start);
+      filterStart.setHours(0, 0, 0, 0);
+      matchesDate = matchesDate && sessionDate >= filterStart;
     }
 
-    return matchesSearch && matchesStatus && matchesType && matchesDate;
+    if (dateRange.end) {
+      const sessionDate = new Date(session.startTime);
+      const filterEnd = new Date(dateRange.end);
+      filterEnd.setHours(23, 59, 59, 999);
+      matchesDate = matchesDate && sessionDate <= filterEnd;
+    }
+
+    if (!isStudent) {
+      return matchesSearch && matchesStatus && matchesType && matchesDate;
+    }
+
+    const joinedBatchIds = new Set(batches.map((batch) => batch._id));
+    const hasNoBatchRestriction = !session.batchIds || session.batchIds.length === 0;
+    const isInJoinedBatch = session.batchIds?.some((batchId) => joinedBatchIds.has(batchId));
+
+    return matchesSearch && matchesStatus && matchesType && matchesDate && (hasNoBatchRestriction || isInJoinedBatch);
   });
 
   if (loading) {
@@ -182,18 +258,23 @@ export const Sessions: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {agentConfig && (
-        agentConfig.blocking_active ? (
+      {agentConfig &&
+        (agentConfig.blocking_active ? (
           <div className="w-full mb-6 px-5 py-4 rounded-xl border border-red-600 bg-red-950/40 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-red-400 text-xl animate-pulse">🔴</span>
               <div>
                 <p className="text-red-300 font-semibold text-sm">
-                  BLOCKING IN PROGRESS — {agentConfig.active_sessions[0]?.title}
+                  BLOCKING IN PROGRESS — {agentConfig.active_sessions?.[0]?.title || 'Active Session'}
                 </p>
                 <p className="text-red-400/70 text-xs mt-0.5">
-                  {agentConfig.domains.length} domains blocked · 
-                  Ends at {new Date(agentConfig.active_sessions[0]?.ends_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}
+                  {agentConfig.domains.length} domains blocked · Ends at{' '}
+                  {agentConfig.active_sessions?.[0]?.ends_at
+                    ? new Date(agentConfig.active_sessions[0].ends_at).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : '--:--'}
                 </p>
               </div>
             </div>
@@ -208,8 +289,7 @@ export const Sessions: React.FC = () => {
               No Active Block Session — Students have unrestricted access
             </p>
           </div>
-        )
-      )}
+        ))}
 
       {error && (
         <p className="text-red-400 p-4 border border-red-900 bg-red-950/20 rounded-lg">{error}</p>
@@ -219,7 +299,7 @@ export const Sessions: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Sessions</h1>
           <p className="text-slate-500 dark:text-slate-400">
-            {isStudent ? 'My Enrolled Sessions & Classes' : 'Schedule and monitor academic sessions.'}
+            {isStudent ? 'My enrolled sessions' : 'Schedule and monitor academic sessions.'}
           </p>
         </div>
         <div className="flex gap-3">
@@ -229,20 +309,21 @@ export const Sessions: React.FC = () => {
             </Button>
           )}
           {!isStudent && (
-            <Button icon={<Plus size={18} />} onClick={() => setIsModalOpen(true)}>Add New Session</Button>
+            <Button icon={<Plus size={18} />} onClick={() => setIsModalOpen(true)}>
+              Add New Session
+            </Button>
           )}
         </div>
       </div>
 
       <Card noPadding className="overflow-hidden">
-        {/* Toolbar */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50">
           <div className="flex flex-col sm:flex-row gap-4 justify-between">
             <div className="relative w-full sm:w-72">
               <Input
                 placeholder="Search sessions..."
                 value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="mb-0"
                 icon={<Search size={16} />}
               />
@@ -256,7 +337,6 @@ export const Sessions: React.FC = () => {
             </Button>
           </div>
 
-          {/* Advanced Filters */}
           {isFiltersOpen && (
             <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 animate-fade-in">
               <Select
@@ -266,6 +346,7 @@ export const Sessions: React.FC = () => {
                   { value: SessionStatus.ACTIVE, label: 'Active' },
                   { value: SessionStatus.UPCOMING, label: 'Upcoming' },
                   { value: SessionStatus.COMPLETED, label: 'Completed' },
+                  { value: SessionStatus.CANCELLED, label: 'Cancelled' },
                 ]}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
@@ -288,14 +369,14 @@ export const Sessions: React.FC = () => {
                 label="From Date"
                 type="date"
                 value={dateRange.start}
-                onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+                onChange={(e) => setDateRange((prev) => ({ ...prev, start: e.target.value }))}
                 className="mb-0"
               />
               <Input
                 label="To Date"
                 type="date"
                 value={dateRange.end}
-                onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+                onChange={(e) => setDateRange((prev) => ({ ...prev, end: e.target.value }))}
                 className="mb-0"
               />
               <div className="flex items-end">
@@ -312,7 +393,6 @@ export const Sessions: React.FC = () => {
           )}
         </div>
 
-        {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
@@ -322,16 +402,19 @@ export const Sessions: React.FC = () => {
                 <th className="px-6 py-4 font-semibold text-slate-900 dark:text-white">Type</th>
                 <th className="px-6 py-4 font-semibold text-slate-900 dark:text-white">Time</th>
                 <th className="px-6 py-4 font-semibold text-slate-900 dark:text-white">Status</th>
-                {!isStudent && <th className="px-6 py-4 font-semibold text-slate-900 dark:text-white text-right">Actions</th>}
+                {!isStudent && (
+                  <th className="px-6 py-4 font-semibold text-slate-900 dark:text-white text-right">Actions</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700 bg-white dark:bg-slate-900">
               {filteredSessions.length > 0 ? (
-                filteredSessions.map((session: any) => (
+                filteredSessions.map((session) => (
                   <SessionCard
-                    key={session._id || session.id}
+                    key={session._id}
                     session={session}
                     isStudent={isStudent}
+                    batchNameById={batchNameById}
                     onStatusChange={handleStatusChange}
                     onGenerateSummary={handleGenerateSummary}
                     onDeleteSession={handleDeleteSession}
@@ -357,14 +440,14 @@ export const Sessions: React.FC = () => {
         </div>
       </Card>
 
-      <CreateSessionModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        rules={rules} 
-        onCreate={handleCreateSession} 
+      <CreateSessionModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        rules={rules}
+        batches={batches}
+        onCreate={handleCreateSession}
       />
 
-      {/* AI Summary Modal */}
       <Modal
         isOpen={summaryModalOpen}
         onClose={() => setSummaryModalOpen(false)}
@@ -391,26 +474,27 @@ export const Sessions: React.FC = () => {
         </div>
       </Modal>
 
-      {/* Join Batch Modal (Student) */}
       <Modal
         isOpen={isJoinModalOpen}
         onClose={() => setIsJoinModalOpen(false)}
         title="Join a Class"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setIsJoinModalOpen(false)}>Cancel</Button>
+            <Button variant="secondary" onClick={() => setIsJoinModalOpen(false)}>
+              Cancel
+            </Button>
             <Button onClick={handleJoinBatch}>Join Class</Button>
           </>
         }
       >
         <div className="space-y-4">
-          <Input 
+          <Input
             label="Class Join Code"
-            placeholder="e.g. CS101A"
+            placeholder="e.g. CE-SY-2024"
             value={joinCode}
-            onChange={e => setJoinCode(e.target.value)}
+            onChange={(e) => setJoinCode(e.target.value)}
           />
-          <p className="text-sm text-slate-500">Ask your professor for the 6-character class code to join their sessions.</p>
+          <p className="text-sm text-slate-500">Ask your professor for the class code to join sessions.</p>
         </div>
       </Modal>
     </div>

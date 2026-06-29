@@ -1,36 +1,40 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { sendError } from '../utils/apiResponse';
 
 interface AuthRequest extends Request {
   user?: any;
 }
 
 export const protect = (req: AuthRequest, res: Response, next: NextFunction) => {
-  let token;
+  const authHeader = req.headers.authorization;
 
-  if ((req as any).headers.authorization && (req as any).headers.authorization.startsWith('Bearer')) {
-    try {
-      token = (req as any).headers.authorization.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET as string);
-      req.user = decoded;
-      next();
-    } catch (error) {
-      res.status(401).json({ message: 'Not authorized, token failed' });
-    }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return sendError(res, 'Not authorized, no token', 401);
   }
 
-  if (!token) {
-    res.status(401).json({ message: 'Not authorized, no token' });
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as {
+      id: string;
+      role: string;
+    };
+    req.user = decoded;
+    return next();
+  } catch (error) {
+    return sendError(res, 'Not authorized, token failed', 401);
   }
 };
 
 export const authorize = (...roles: string[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ 
-        message: `User role ${req.user.role} is not authorized to access this route`
-      });
+    if (!req.user || !roles.includes(req.user.role)) {
+      return sendError(
+        res,
+        `User role ${req.user?.role ?? 'unknown'} is not authorized to access this route`,
+        403
+      );
     }
-    next();
+    return next();
   };
 };

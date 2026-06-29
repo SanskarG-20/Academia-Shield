@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { User, BadgeCheck, Briefcase, Mail, CheckCircle } from 'lucide-react';
 import { Input, Select } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { getMe, updateMe } from '../lib/api';
 
 export const ProfessorProfile: React.FC = () => {
   const navigate = useNavigate();
@@ -17,9 +18,22 @@ export const ProfessorProfile: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load Email from login step
-    const storedEmail = localStorage.getItem('userEmail') || 'admin@university.edu';
-    setFormData(prev => ({ ...prev, email: storedEmail }));
+    const loadProfile = async () => {
+      try {
+        const profile = await getMe();
+        setFormData({
+          fullName: profile.name || '',
+          department: profile.department || '',
+          employeeId: '',
+          designation: profile.designation || '',
+          email: profile.email || '',
+        });
+      } catch (err: any) {
+        setError(err.message || 'Failed to load profile data.');
+      }
+    };
+
+    loadProfile();
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -28,29 +42,28 @@ export const ProfessorProfile: React.FC = () => {
     setError(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.fullName || !formData.department || !formData.employeeId || !formData.designation) {
+    if (!formData.fullName || !formData.department || !formData.designation) {
       setError('All fields are mandatory for faculty registration.');
       return;
     }
 
     setIsLoading(true);
 
-    // Simulate API save
-    setTimeout(() => {
-      // 1. Save to active session
-      localStorage.setItem('userName', formData.fullName);
-      localStorage.setItem('professorProfile', JSON.stringify(formData));
-
-      // 2. Save to PERSISTENT storage (Simulated DB)
-      // Key is stored_prof_<EMAIL>
-      localStorage.setItem(`stored_prof_${formData.email}`, JSON.stringify(formData));
-      
-      setIsLoading(false);
+    try {
+      await updateMe({
+        name: formData.fullName,
+        department: formData.department,
+        designation: formData.designation,
+      });
       navigate('/dashboard');
-    }, 1500);
+    } catch (err: any) {
+      setError(err.message || 'Failed to update profile.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

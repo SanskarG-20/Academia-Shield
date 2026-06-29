@@ -1,29 +1,81 @@
 import { Request, Response } from 'express';
 import Log from '../models/Log';
+import Session from '../models/Session';
+import Student from '../models/Student';
+import { sendError, sendSuccess } from '../utils/apiResponse';
 
 // @desc    Save Logs (Usage or Event)
 // @route   POST /api/logs
 export const createLog = async (req: Request | any, res: Response) => {
-  const { sessionId, type, resource, details, duration, engagementScore, isViolation } = req.body;
+  try {
+    const { sessionId, type, resource, details, duration, engagementScore, isViolation } = req.body;
 
-  const log = await Log.create({
-    sessionId,
-    studentId: req.user.id,
-    studentName: req.user.name || 'Unknown', // Ideally fetched from DB
-    type,
-    resource,
-    details,
-    duration,
-    engagementScore,
-    isViolation
-  });
+    if (!sessionId || !type) {
+      return sendError(res, 'sessionId and type are required', 400);
+    }
 
-  res.status(201).json(log);
+    const student = await Student.findById(req.user.id).select('name');
+
+    const log = await Log.create({
+      sessionId,
+      studentId: req.user.id,
+      studentName: student?.name || req.user.name || 'Unknown',
+      type,
+      resource,
+      details,
+      duration,
+      engagementScore,
+      isViolation: Boolean(isViolation),
+    });
+
+    return sendSuccess(res, log, 'Log created successfully', 201);
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to create log', 500);
+  }
+};
+
+// @desc    Get Logs (role-aware)
+// @route   GET /api/logs
+export const getLogs = async (req: Request | any, res: Response) => {
+  try {
+    const sessionId = req.query.sessionId as string | undefined;
+
+    if (req.user.role === 'professor') {
+      const professorSessions = await Session.find({ professorId: req.user.id }).select('_id');
+      const sessionIds = professorSessions.map((s) => s._id);
+
+      const query: any = { sessionId: { $in: sessionIds } };
+      if (sessionId) {
+        query.sessionId = sessionId;
+      }
+
+      const logs = await Log.find(query).sort({ timestamp: -1 }).limit(500);
+      return sendSuccess(res, logs, 'Logs fetched successfully');
+    }
+
+    if (req.user.role === 'student') {
+      const query: any = { studentId: req.user.id };
+      if (sessionId) {
+        query.sessionId = sessionId;
+      }
+
+      const logs = await Log.find(query).sort({ timestamp: -1 }).limit(500);
+      return sendSuccess(res, logs, 'Logs fetched successfully');
+    }
+
+    return sendError(res, 'Unsupported role for logs', 403);
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to fetch logs', 500);
+  }
 };
 
 // @desc    Get Logs for Session
 // @route   GET /api/logs/:sessionId
 export const getSessionLogs = async (req: Request | any, res: Response) => {
-  const logs = await Log.find({ sessionId: req.params.sessionId }).sort({ timestamp: -1 });
-  res.json(logs);
+  try {
+    const logs = await Log.find({ sessionId: req.params.sessionId }).sort({ timestamp: -1 });
+    return sendSuccess(res, logs, 'Session logs fetched successfully');
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to fetch session logs', 500);
+  }
 };

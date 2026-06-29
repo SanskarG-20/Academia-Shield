@@ -28,11 +28,23 @@ def api(method, path, body=None, auth=True):
     req = urllib.request.Request(url, data=data, headers=headers, method=method.upper())
     try:
         with urllib.request.urlopen(req) as response:
-            return json.loads(response.read().decode('utf-8'))
+            payload = json.loads(response.read().decode('utf-8'))
+
+            # Unwrap standard API envelope: { success, data, message }
+            if isinstance(payload, dict) and "success" in payload and "data" in payload:
+                if not payload.get("success"):
+                    raise RuntimeError(payload.get("message", "API request failed"))
+                return payload.get("data")
+
+            return payload
     except urllib.error.URLError as e:
         error_msg = e.read().decode('utf-8') if hasattr(e, 'read') else str(e)
         print(f"\n[ERROR] API request failed: {method} {url}")
         print(f"        {error_msg}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n[ERROR] API request failed: {method} {url}")
+        print(f"        {str(e)}")
         sys.exit(1)
 
 def get_time():
@@ -58,8 +70,8 @@ def main():
     # ---------------------------------------------------------
     print("Step 1/5 — Professor Authentication...")
     login_res = api("POST", "/api/auth/professor/login", {
-        "email": "dr.sharma@university.edu",
-        "password": "demo1234"
+        "email": "demo@professor.com",
+        "password": "password123"
     }, auth=False)
     
     TOKEN = login_res.get("token")
@@ -67,7 +79,7 @@ def main():
         print("❌ Failed to retrieve authentication token.")
         sys.exit(1)
         
-    print("✅ Authenticated as Dr. Sharma\n")
+    print("✅ Authenticated as Demo Professor\n")
     time.sleep(2)
 
     # ---------------------------------------------------------

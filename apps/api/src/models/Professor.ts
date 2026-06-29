@@ -1,6 +1,8 @@
 import mongoose, { Document, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
+const BCRYPT_HASH_REGEX = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
+
 export interface IProfessor extends Document {
   name: string;
   email: string;
@@ -26,6 +28,12 @@ ProfessorSchema.pre('save', async function () {
   if (!this.isModified('passwordHash')) {
     return;
   }
+
+  // Seed scripts may provide pre-hashed passwords. Avoid hashing those again.
+  if (BCRYPT_HASH_REGEX.test(this.passwordHash)) {
+    return;
+  }
+
   const salt = await bcrypt.genSalt(10);
   this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
 });

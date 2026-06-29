@@ -11,7 +11,12 @@ export interface IStudent extends Document {
 }
 
 const StudentSchema = new Schema<IStudent>({
-  sapId: { type: String, required: true, unique: true },
+  sapId: {
+    type: String,
+    required: true,
+    unique: true,
+    match: [/^\d{12}$/, 'sapId must be exactly 12 digits'],
+  },
   name: { type: String, required: true },
   email: { type: String, required: true },
   department: { type: String, required: true },

@@ -5,7 +5,7 @@ import { Modal } from '../components/ui/Modal';
 import { Input, Select } from '../components/ui/Input';
 import { Plus, Globe, Laptop, Edit2, Trash2, Loader2 as Spinner } from 'lucide-react';
 import { RuleSet } from '../types';
-import { getRules, createRule, deleteRule, getSessions } from '../lib/api';
+import { getRules, createRule, updateRule, deleteRule, getSessions } from '../lib/api';
 
 export const Rules: React.FC = () => {
   const [rules, setRules] = useState<RuleSet[]>([]);
@@ -30,7 +30,10 @@ export const Rules: React.FC = () => {
       const [rulesData, sessionsData] = await Promise.all([getRules(), getSessions()]);
       setRules(rulesData);
       setActiveRuleIds(
-        sessionsData.filter((s: any) => s.status === "active" || s.status === "Active").map((s: any) => s.ruleSetId)
+        sessionsData
+          .filter((s: any) => String(s.status).toLowerCase() === 'active')
+          .map((s: any) => String(s.ruleSetId || ''))
+          .filter(Boolean)
       );
       setError("");
     } catch (e: any) {
@@ -60,7 +63,7 @@ export const Rules: React.FC = () => {
   const openEditModal = (rule: RuleSet) => {
     setIsEditing(true);
     setFormData({
-      id: rule.id,
+      id: rule._id,
       name: rule.name,
       mode: rule.mode,
       websites: rule.websites.join(', '),
@@ -75,7 +78,12 @@ export const Rules: React.FC = () => {
 
     try {
       if (isEditing) {
-        // Edit logic if backend supports it
+        await updateRule(formData.id, {
+          name: formData.name,
+          mode: formData.mode,
+          websites: websiteList,
+          applications: appList,
+        });
       } else {
         await createRule(formData.name, formData.mode, websiteList, appList);
       }
@@ -126,11 +134,11 @@ export const Rules: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {rules.map((rule: any) => (
-          <Card key={rule._id || rule.id} className="flex flex-col h-full">
+          <Card key={rule._id} className="flex flex-col h-full">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate pr-2">{rule.name}</h3>
               <div className="flex gap-2 items-center">
-                {activeRuleIds.includes(rule._id || rule.id) && (
+                {activeRuleIds.includes(rule._id) && (
                   <span className="bg-red-900/40 text-red-400 text-xs px-2 py-0.5 rounded-full border border-red-700">
                     🔴 BLOCKING ACTIVE
                   </span>
@@ -197,7 +205,7 @@ export const Rules: React.FC = () => {
                 variant="secondary"
                 className="flex-1 text-gray-400 hover:text-red-400 transition-colors"
                 icon={<Trash2 size={14}/>}
-                onClick={() => handleDeleteRule(rule._id || rule.id)}
+                onClick={() => handleDeleteRule(rule._id)}
               >
                 Delete
               </Button>

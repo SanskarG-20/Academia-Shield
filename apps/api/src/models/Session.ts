@@ -17,6 +17,7 @@ export interface ISession extends Document {
   professorId: mongoose.Types.ObjectId;
   ruleSetId: mongoose.Types.ObjectId;
   batchIds: mongoose.Types.ObjectId[];
+  joinedStudentIds: mongoose.Types.ObjectId[];
 }
 
 const SessionSchema = new Schema<ISession>({
@@ -28,7 +29,8 @@ const SessionSchema = new Schema<ISession>({
   status: { type: String, enum: Object.values(SessionStatus), default: SessionStatus.UPCOMING },
   professorId: { type: Schema.Types.ObjectId, ref: 'Professor', required: true },
   ruleSetId: { type: Schema.Types.ObjectId, ref: 'Rule' },
-  batchIds: [{ type: Schema.Types.ObjectId, ref: 'Batch' }]
+  batchIds: [{ type: Schema.Types.ObjectId, ref: 'Batch' }],
+  joinedStudentIds: [{ type: Schema.Types.ObjectId, ref: 'Student' }],
 }, { timestamps: true });
 
 export default mongoose.model<ISession>('Session', SessionSchema);

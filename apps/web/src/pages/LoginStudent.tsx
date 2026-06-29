@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { GraduationCap, AlertCircle, Phone, Send, Hash } from 'lucide-react';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { requestStudentOtp } from '../lib/api';
 
 export const LoginStudent: React.FC = () => {
   const navigate = useNavigate();
@@ -20,13 +21,13 @@ export const LoginStudent: React.FC = () => {
     }
   };
 
-  const handleRequestOtp = (e: React.FormEvent) => {
+  const handleRequestOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    // SAP ID Validation (11 digits)
-    if (!sapId.trim() || sapId.length !== 11 || !/^\d+$/.test(sapId)) {
-      setError('Invalid SAP ID. Please enter exactly 11 digits.');
+    // SAP ID Validation (12 digits)
+    if (!sapId.trim() || sapId.length !== 12 || !/^\d+$/.test(sapId)) {
+      setError('Invalid SAP ID. Please enter exactly 12 digits.');
       return;
     }
 
@@ -37,20 +38,22 @@ export const LoginStudent: React.FC = () => {
     }
 
     setIsLoading(true);
-    
-    // Simulate API call to send OTP
-    // Mock API POST /auth/student/request-otp
-    setTimeout(() => {
+
+    try {
+      const response = await requestStudentOtp(sapId);
       localStorage.setItem('tempPhoneNumber', phoneNumber);
       localStorage.setItem('tempSapId', sapId);
-      setIsLoading(false);
-      
-      // MOCK SMS SIMULATION
-      alert(`[MOCK SMS] \n\nSent to: +91 ${phoneNumber}\nSAP ID: ${sapId}\nYour Academia Shield Verification Code is: 123456`);
-      
-      // Redirect to OTP verification
+      if (response?.mockOtp) {
+        localStorage.setItem('tempMockOtp', response.mockOtp);
+      } else {
+        localStorage.removeItem('tempMockOtp');
+      }
       navigate('/login/student/otp');
-    }, 1500);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send verification code.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -87,13 +90,13 @@ export const LoginStudent: React.FC = () => {
         <form onSubmit={handleRequestOtp} className="space-y-6">
           <div className="space-y-4">
             <Input 
-              label="SAP ID (11 Digits)"
+              label="SAP ID (12 Digits)"
               type="text"
-              placeholder="e.g. 50001234567"
+              placeholder="e.g. 600000001234"
               value={sapId}
               onChange={(e) => setSapId(e.target.value)}
               icon={<Hash size={16} />}
-              maxLength={11}
+              maxLength={12}
               autoFocus
             />
 
@@ -118,7 +121,7 @@ export const LoginStudent: React.FC = () => {
           <Button 
             type="submit" 
             className="w-full py-3 text-base" 
-            disabled={isLoading || phoneNumber.length !== 10 || sapId.length !== 11}
+            disabled={isLoading || phoneNumber.length !== 10 || sapId.length !== 12}
             icon={isLoading ? null : <Send size={18} />}
           >
             {isLoading ? 'Sending Code...' : 'Send Verification Code'}

@@ -24,7 +24,8 @@ export const Sidebar: React.FC = () => {
     localStorage.removeItem('userEmail');
     localStorage.removeItem('studentProfile');
     localStorage.removeItem('professorProfile');
-    localStorage.removeItem('joinedBatches'); // Clear local student data on logout
+    localStorage.removeItem('tempSapId');
+    localStorage.removeItem('tempPhoneNumber');
     navigate('/');
   };
 

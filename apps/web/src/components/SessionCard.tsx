@@ -2,13 +2,13 @@ import React from 'react';
 import { Calendar, Clock, AlertCircle, Sparkles, Trash2, Play, Square, XCircle } from 'lucide-react';
 import { Session, SessionStatus } from '../types';
 import { Button } from './ui/Button';
-import { MOCK_BATCHES } from '../constants'; // Fallback for batch names
 
 interface SessionCardProps {
-  session: any; // Using any for fast iteration with both MongoDB _id and local id
+  session: Session;
   isStudent: boolean;
+  batchNameById?: Record<string, string>;
   onStatusChange: (id: string, newStatus: string) => Promise<void>;
-  onGenerateSummary: (session: any) => void;
+  onGenerateSummary: (session: Session) => void;
   onDeleteSession: (id: string) => void;
   currentTime: Date;
 }
@@ -16,6 +16,7 @@ interface SessionCardProps {
 export const SessionCard: React.FC<SessionCardProps> = ({
   session,
   isStudent,
+  batchNameById = {},
   onStatusChange,
   onGenerateSummary,
   onDeleteSession,
@@ -59,7 +60,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
     }
   };
 
-  const sessionId = session._id || session.id;
+  const sessionId = session._id;
 
   return (
     <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors ${session.status.toLowerCase() === 'active' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : ''}`}>
@@ -76,10 +77,10 @@ export const SessionCard: React.FC<SessionCardProps> = ({
         {session.batchIds && session.batchIds.length > 0 && (
           <div className="flex gap-1 mt-1">
             {session.batchIds.map((bid: string) => {
-              const b = MOCK_BATCHES.find(mb => mb.id === bid);
-              return b ? (
+              const batchName = batchNameById[bid];
+              return batchName ? (
                 <span key={bid} className="text-[10px] px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-slate-500">
-                  {b.name}
+                  {batchName}
                 </span>
               ) : null;
             })}

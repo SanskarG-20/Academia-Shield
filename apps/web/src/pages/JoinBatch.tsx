@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Users, ArrowRight, ShieldCheck } from 'lucide-react';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
-import { MOCK_BATCHES } from '../constants';
+import { joinBatch } from '../lib/api';
 
 export const JoinBatch: React.FC = () => {
   const navigate = useNavigate();
@@ -11,27 +11,19 @@ export const JoinBatch: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleJoinBatch = (e: React.FormEvent) => {
+  const handleJoinBatch = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setIsLoading(true);
 
-    setTimeout(() => {
-      // Validate code against mock batches
-      const batch = MOCK_BATCHES.find(b => b.code === joinCode.toUpperCase());
-      
-      if (batch) {
-        const currentJoined = JSON.parse(localStorage.getItem('joinedBatches') || '[]');
-        if (!currentJoined.includes(batch.id)) {
-          localStorage.setItem('joinedBatches', JSON.stringify([...currentJoined, batch.id]));
-        }
-        setIsLoading(false);
-        navigate('/student/session');
-      } else {
-        setIsLoading(false);
-        setError('Invalid Batch Code. Please check with your professor.');
-      }
-    }, 1000);
+    try {
+      await joinBatch(joinCode.toUpperCase());
+      navigate('/student/session');
+    } catch (err: any) {
+      setError(err.message || 'Invalid Batch Code. Please check with your professor.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSkip = () => {

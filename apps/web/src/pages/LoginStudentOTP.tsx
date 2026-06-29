@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ShieldCheck, ArrowRight, ArrowLeft, Clock, RefreshCw } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { OtpInput } from '../components/ui/OtpInput';
+import { requestStudentOtp, verifyStudentOtp } from '../lib/api';
 
 export const LoginStudentOTP: React.FC = () => {
   const navigate = useNavigate();
@@ -11,11 +12,13 @@ export const LoginStudentOTP: React.FC = () => {
   const [timer, setTimer] = useState(60);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [sapId, setSapId] = useState('');
+  const [mockOtp, setMockOtp] = useState('');
 
   useEffect(() => {
     // Retrieve Login Details
     const storedPhone = localStorage.getItem('tempPhoneNumber');
     const storedSapId = localStorage.getItem('tempSapId');
+    const storedMockOtp = localStorage.getItem('tempMockOtp');
     
     if (!storedPhone) {
       navigate('/login/student');
@@ -23,6 +26,7 @@ export const LoginStudentOTP: React.FC = () => {
     }
     setPhoneNumber(storedPhone);
     if (storedSapId) setSapId(storedSapId);
+    if (storedMockOtp) setMockOtp(storedMockOtp);
 
     // Countdown Timer
     const interval = setInterval(() => {
@@ -32,46 +36,42 @@ export const LoginStudentOTP: React.FC = () => {
     return () => clearInterval(interval);
   }, [navigate]);
 
-  const handleVerify = () => {
-    if (otp.length !== 6) return;
-    
+  const handleVerify = async () => {
+    if (otp.length !== 6 || !sapId) return;
+
     setIsLoading(true);
-    
-    // Simulate Verification API
-    setTimeout(() => {
-      setIsLoading(false);
-      
-      // Set Auth State
-      localStorage.setItem('isAuthenticated', 'true');
-      localStorage.setItem('userRole', 'student');
-      localStorage.setItem('userEmail', `${sapId || phoneNumber}@student.university.edu`);
-
-      // CHECK IF USER ALREADY EXISTS (Persistence Check)
-      const existingUserKey = `stored_student_${sapId}`;
-      const existingUserData = localStorage.getItem(existingUserKey);
-
-      if (existingUserData) {
-        // User has logged in before - Restore Profile
-        const parsedData = JSON.parse(existingUserData);
-        localStorage.setItem('studentProfile', existingUserData);
-        localStorage.setItem('userName', parsedData.fullName);
-        
-        // Skip profile setup, go to dashboard/session
-        navigate('/dashboard');
-      } else {
-        // First time user - Go to Profile Setup
-        localStorage.setItem('userName', 'Student User'); 
+    try {
+      const data = await verifyStudentOtp(sapId, otp);
+      if (data.requiresProfileSetup) {
         navigate('/student/profile');
+      } else {
+        navigate('/dashboard');
       }
-      
-    }, 1500);
+    } catch (error: any) {
+      alert(error.message || 'Invalid or expired OTP.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleResend = () => {
+  const handleResend = async () => {
     if (timer > 0) return;
     setTimer(60);
-    // Trigger resend API mock with alert
-    alert(`[MOCK SMS] \n\nResent to: +91 ${phoneNumber}\nSAP ID: ${sapId}\nYour Academia Shield Verification Code is: 123456`);
+
+    if (!sapId) return;
+
+    try {
+      const response = await requestStudentOtp(sapId);
+      if (response?.mockOtp) {
+        setMockOtp(response.mockOtp);
+        localStorage.setItem('tempMockOtp', response.mockOtp);
+      } else {
+        setMockOtp('');
+        localStorage.removeItem('tempMockOtp');
+      }
+    } catch (error: any) {
+      alert(error.message || 'Failed to resend OTP.');
+    }
   };
 
   return (
@@ -90,6 +90,11 @@ export const LoginStudentOTP: React.FC = () => {
            <div className="text-slate-500 dark:text-slate-400 text-sm mt-3 bg-slate-50 dark:bg-slate-900/50 py-3 px-4 rounded-lg border border-slate-100 dark:border-slate-700 inline-block">
              <p>SAP ID: <strong className="text-slate-700 dark:text-slate-200">{sapId}</strong></p>
              <p>OTP sent to: <strong className="text-slate-700 dark:text-slate-200">+91 {phoneNumber}</strong></p>
+             {mockOtp && (
+               <p className="mt-2 text-amber-600 dark:text-amber-400 font-semibold">
+                 Demo OTP: {mockOtp}
+               </p>
+             )}
            </div>
          </div>
 
