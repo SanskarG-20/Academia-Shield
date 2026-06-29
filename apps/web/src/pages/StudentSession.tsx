@@ -107,6 +107,40 @@ export const StudentSession: React.FC = () => {
     ? agentConfig.domains
     : ['No active blocked domains at the moment'];
 
+  // Automatic activity simulation for Working Mode
+  useEffect(() => {
+    let activityInterval: ReturnType<typeof setInterval>;
+
+    if (isWorking && currentSession) {
+      // Simulate activity every 15 seconds
+      activityInterval = setInterval(async () => {
+        try {
+          const isViolation = Math.random() < 0.15; // 15% chance to simulate a violation
+          const activeDomains = agentConfig?.domains || [];
+          
+          const resource = isViolation && activeDomains.length > 0
+            ? activeDomains[Math.floor(Math.random() * activeDomains.length)]
+            : 'vscode.dev';
+
+          await createLog({
+            sessionId: currentSession._id,
+            type: 'EVENT',
+            resource,
+            details: isViolation ? `Agent blocked access to ${resource}` : 'Student working normally',
+            engagementScore: isViolation ? 20 : 85 + Math.floor(Math.random() * 15),
+            isViolation,
+          });
+        } catch (e) {
+          console.warn('Background simulation log failed', e);
+        }
+      }, 15000);
+    }
+
+    return () => {
+      if (activityInterval) clearInterval(activityInterval);
+    };
+  }, [isWorking, currentSession, agentConfig]);
+
   const simulateActivity = async (resource: string) => {
     if (!currentSession) return;
 
