@@ -50,3 +50,10 @@ class EnforcementEngine(ABC):
     def name(self) -> str:
         """Human-readable name for logging (e.g. 'Hosts File Engine')."""
         ...
+
+    @abstractmethod
+    def shutdown(self) -> None:
+        """
+        Perform any necessary cleanup and shutdown the engine safely.
+        """
+        ...

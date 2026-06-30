@@ -51,6 +51,7 @@ from enforcement.hosts import HostsEnforcementEngine, normalize_domain_list
 
 LOGGER = setup_logger()
 SYNC_EVENT = threading.Event()
+RUNNING = True
 
 
 # ---------------------------------------------------------------------------
@@ -185,12 +186,16 @@ def main():
     sync_once(engine)
 
     # Main polling loop
-    while True:
+    global RUNNING
+    while RUNNING:
         try:
             # Wait for either POLL_INTERVAL seconds or an immediate socket event
             SYNC_EVENT.wait(POLL_INTERVAL)
             SYNC_EVENT.clear()
             
+            if not RUNNING:
+                break
+
             sync_once(engine)
 
         except PermissionError:
@@ -199,19 +204,22 @@ def main():
             SYNC_EVENT.wait(POLL_INTERVAL)
             SYNC_EVENT.clear()
         except KeyboardInterrupt:
-            LOGGER.info("Interrupted. Restoring original system state...")
-            try:
-                engine.restore_rules()
-                report_to_server("BLOCK_REMOVED")
-            finally:
-                if socket_client:
-                    socket_client.disconnect()
-                LOGGER.info("Agent stopped.")
+            LOGGER.info("Interrupted (KeyboardInterrupt).")
             break
         except Exception as err:
             LOGGER.exception("Unexpected runtime error: %s", err)
             SYNC_EVENT.wait(POLL_INTERVAL)
             SYNC_EVENT.clear()
+
+    # Graceful shutdown (reached via KeyboardInterrupt or RUNNING=False)
+    LOGGER.info("Restoring original system state before shutdown...")
+    try:
+        engine.shutdown()
+        report_to_server("BLOCK_REMOVED")
+    finally:
+        if socket_client:
+            socket_client.disconnect()
+        LOGGER.info("Agent stopped.")
 
 
 if __name__ == "__main__":

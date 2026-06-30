@@ -170,6 +170,10 @@ class HostsEnforcementEngine(EnforcementEngine):
         """Remove the managed block from the hosts file."""
         return self._apply_domains_to_hosts([])
 
+    def shutdown(self) -> None:
+        """Cleanup on agent shutdown."""
+        self.restore_rules()
+
     # -- internal implementation (extracted from original agent.py) ----------
 
     def _apply_domains_to_hosts(self, domains):

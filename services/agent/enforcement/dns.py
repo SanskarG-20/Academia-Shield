@@ -445,6 +445,12 @@ class DnsEnforcementEngine(EnforcementEngine):
         LOGGER.info("[DNS] All rules cleared, original DNS restored")
         return True
 
+    def shutdown(self) -> None:
+        """Cleanup on agent shutdown."""
+        self.restore_rules()
+        if self._resolver and self._resolver.is_alive():
+            self._resolver.stop()
+
     def _emergency_restore(self):
         """atexit handler — ensures DNS is restored even on unexpected exit."""
         if self._dns_redirected:
