@@ -127,6 +127,12 @@ function setAuthState(
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
+  if (res.status === 401) {
+    localStorage.clear();
+    window.location.href = '/select-user';
+    throw new Error('Session expired. Please log in again.');
+  }
+
   const body = await res.json().catch(() => null);
 
   if (!res.ok) {

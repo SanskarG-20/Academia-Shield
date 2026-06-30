@@ -26,6 +26,10 @@ export const createSession = async (req: Request | any, res: Response) => {
       return sendError(res, 'title, course, type, startTime and endTime are required', 400);
     }
 
+    if (new Date(startTime) >= new Date(endTime)) {
+      return sendError(res, 'startTime must be strictly before endTime', 400);
+    }
+
     const session = await Session.create({
       title,
       course,
@@ -135,6 +139,12 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
       if (!session.endTime || session.endTime <= now || session.endTime <= session.startTime) {
         session.endTime = new Date(now.getTime() + 60 * 60 * 1000);
       }
+    } else if (normalizedStatus === 'Upcoming' || normalizedStatus === 'Cancelled' || normalizedStatus === 'Completed') {
+        if (req.body.startTime && req.body.endTime) {
+             if (new Date(req.body.startTime) >= new Date(req.body.endTime)) {
+                  return sendError(res, 'startTime must be strictly before endTime', 400);
+             }
+        }
     }
 
     await session.save();

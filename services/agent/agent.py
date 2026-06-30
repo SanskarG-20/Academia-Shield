@@ -135,10 +135,17 @@ def sync_once(engine):
         
         if LAST_STATE != "ACTIVE" or LAST_APPLIED_DOMAINS != current_domains_set:
             LOGGER.info("Applying blocking rules for %s domains via %s", len(normalized), engine.name)
-            engine.apply_rules(normalized)
-            report_to_server("BLOCK_APPLIED", normalized)
-            LAST_STATE = "ACTIVE"
-            LAST_APPLIED_DOMAINS = current_domains_set
+            
+            success = engine.apply_rules(normalized)
+            if success:
+                report_to_server("BLOCK_APPLIED", normalized)
+                LAST_STATE = "ACTIVE"
+                LAST_APPLIED_DOMAINS = current_domains_set
+            else:
+                LOGGER.error("Failed to apply blocking rules. Will retry on next cycle.")
+                # Reset state to force retry
+                LAST_STATE = None
+                LAST_APPLIED_DOMAINS = None
         else:
             LOGGER.debug("Blocking rules unchanged; skipping enforcement update")
     else:
