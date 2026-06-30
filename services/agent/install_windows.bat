@@ -1,9 +1,9 @@
 @echo off
 echo ===================================================
-echo Academia Shield Agent - Windows Automated Installer
+echo Academia Shield Agent - Windows Service Installer
 echo ===================================================
 
-:: Check for Administrator privileges (required to set up a scheduled task)
+:: Check for Administrator privileges
 net session >nul 2>&1
 if %errorLevel% == 0 (
     echo [OK] Administrator privileges confirmed.
@@ -15,39 +15,50 @@ if %errorLevel% == 0 (
 )
 
 echo.
-echo [1/3] Installing compilation tools (PyInstaller)...
-pip install pyinstaller
+echo [1/3] Installing dependencies...
+pip install pyinstaller pywin32 python-socketio[client]
+
+:: Run PyWin32 post-install script just in case
+python -c "from win32com.server.register import UseCommandLine; UseCommandLine()" >nul 2>&1
 
 echo.
-echo [2/3] Compiling the Python script into a hidden background executable...
-:: --noconsole prevents the black terminal window from showing up
-:: --onefile packages everything into a single .exe
-pyinstaller --noconfirm --noconsole --onefile agent.py
+echo [2/3] Compiling Windows Service executable...
+:: Compile the service wrapper. We need hidden imports for pywin32 to work compiled.
+pyinstaller --noconfirm --hidden-import win32timezone --hidden-import servicemanager --hidden-import win32serviceutil --hidden-import win32service --hidden-import win32event --onefile service\windows_service.py
 
-if not exist "dist\agent.exe" (
-    echo [ERROR] Failed to compile agent.exe. Please check if Python is installed correctly.
+if not exist "dist\windows_service.exe" (
+    echo [ERROR] Failed to compile windows_service.exe.
     pause
     exit /b 1
 )
 
 echo.
-echo [3/3] Installing to System and creating Startup Task...
-:: Create a dedicated folder in Program Files
+echo [3/3] Installing and starting the Windows Service...
 mkdir "C:\Program Files\AcademiaShield" 2>nul
-copy /y "dist\agent.exe" "C:\Program Files\AcademiaShield\agent.exe"
 
-:: Create a scheduled task that runs as the SYSTEM user on system startup with highest (Admin) privileges
-schtasks /create /tn "AcademiaShieldAgent" /tr "\"C:\Program Files\AcademiaShield\agent.exe\"" /sc onstart /ru SYSTEM /rl highest /f
+:: Stop and remove old service if it exists
+"C:\Program Files\AcademiaShield\windows_service.exe" stop >nul 2>&1
+"C:\Program Files\AcademiaShield\windows_service.exe" remove >nul 2>&1
+:: Also remove the old scheduled task if upgrading from prototype
+schtasks /delete /tn "AcademiaShieldAgent" /f >nul 2>&1
+
+:: Copy the new executable
+copy /y "dist\windows_service.exe" "C:\Program Files\AcademiaShield\windows_service.exe"
+
+:: Install and start the new service
+"C:\Program Files\AcademiaShield\windows_service.exe" install
+"C:\Program Files\AcademiaShield\windows_service.exe" start
+
+:: Set recovery options (restart service on failure)
+sc failure AcademiaShieldAgent reset= 86400 actions= restart/60000/restart/60000/restart/60000
 
 echo.
 echo ===================================================
 echo SUCCESS! Installation Complete.
 echo ===================================================
-echo The Academia Shield agent is now permanently installed.
-echo It will start completely invisibly in the background 
-echo every time this computer boots up.
+echo The Academia Shield agent is now running as a permanent Windows Service.
+echo It will run automatically in the background on system boot.
 echo.
-echo Starting the agent right now so you don't have to restart...
-start "" "C:\Program Files\AcademiaShield\agent.exe"
+echo You can check the logs at: C:\Program Files\AcademiaShield\agent.log
 echo.
 pause
