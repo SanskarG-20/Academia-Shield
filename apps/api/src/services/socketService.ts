@@ -24,6 +24,12 @@ export const setupSocket = (io: Server) => {
       console.log(`[socket] ${socket.id} joined live_logs room`);
     });
 
+    // Join the agents room (desktop Python agents)
+    socket.on('join_agent', (agentId: string) => {
+      socket.join('agents');
+      console.log(`[socket] agent ${agentId || socket.id} joined agents room`);
+    });
+
     // Handle Student Activity Event
     socket.on('student_activity', (data) => {
       // Data: { sessionId, studentName, action, website, status, engagement }

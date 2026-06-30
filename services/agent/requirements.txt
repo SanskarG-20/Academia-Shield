@@ -1,0 +1,10 @@
+# Academia Shield Agent — Python Dependencies
+#
+# Core agent (HOSTS mode) requires NO external dependencies.
+# The following are optional for enhanced features.
+
+# Socket.IO client for real-time push communication (Sprint 3)
+python-socketio[client]>=5.0.0
+
+# Windows Service support (Sprint 4 — optional)
+# pywin32>=306; sys_platform == 'win32'

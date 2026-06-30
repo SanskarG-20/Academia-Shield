@@ -26,6 +26,7 @@ import time
 import logging
 import ctypes
 import platform
+import threading
 
 # Ensure the agent directory is on sys.path so relative imports work
 # regardless of the working directory.
@@ -49,6 +50,7 @@ from comms.http_client import fetch_config_with_retry, report_to_server
 from enforcement.hosts import HostsEnforcementEngine, normalize_domain_list
 
 LOGGER = setup_logger()
+SYNC_EVENT = threading.Event()
 
 
 # ---------------------------------------------------------------------------
@@ -163,30 +165,53 @@ def main():
     engine = get_engine()
     LOGGER.info("Active engine:    %s", engine.name)
 
+    # Socket.IO setup
+    socket_client = None
+    if SOCKET_ENABLED:
+        def on_socket_event(data):
+            LOGGER.info("Socket event received — forcing immediate sync")
+            SYNC_EVENT.set()
+
+        from comms.socket_client import AgentSocketClient
+        socket_client = AgentSocketClient(
+            server_url=SOCKET_URL,
+            agent_id=AGENT_ID,
+            on_session_started=on_socket_event,
+            on_session_ended=on_socket_event,
+        )
+        socket_client.connect()
+
     # Apply immediately on startup to ensure restart reliability
     sync_once(engine)
 
     # Main polling loop
     while True:
         try:
+            # Wait for either POLL_INTERVAL seconds or an immediate socket event
+            SYNC_EVENT.wait(POLL_INTERVAL)
+            SYNC_EVENT.clear()
+            
             sync_once(engine)
-            time.sleep(POLL_INTERVAL)
 
         except PermissionError:
             LOGGER.error("Permission denied while updating system configuration.")
             LOGGER.error("Run as administrator to apply blocking")
-            time.sleep(POLL_INTERVAL)
+            SYNC_EVENT.wait(POLL_INTERVAL)
+            SYNC_EVENT.clear()
         except KeyboardInterrupt:
             LOGGER.info("Interrupted. Restoring original system state...")
             try:
                 engine.restore_rules()
                 report_to_server("BLOCK_REMOVED")
             finally:
+                if socket_client:
+                    socket_client.disconnect()
                 LOGGER.info("Agent stopped.")
             break
         except Exception as err:
             LOGGER.exception("Unexpected runtime error: %s", err)
-            time.sleep(POLL_INTERVAL)
+            SYNC_EVENT.wait(POLL_INTERVAL)
+            SYNC_EVENT.clear()
 
 
 if __name__ == "__main__":

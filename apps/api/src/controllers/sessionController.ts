@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
 import Session from '../models/Session';
+import Rule from '../models/Rule';
 import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
+import { getIO } from '../services/socketService';
 
 const VALID_STATUSES = ['Upcoming', 'Active', 'Completed', 'Cancelled'];
 
@@ -124,6 +126,50 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
     console.log(
       `[session-status] id=${session._id} title="${session.title}" ${previousStatus} -> ${session.status}`
     );
+
+    // -------------------------------------------------------------------
+    // Socket.IO: Emit session lifecycle events for connected agents
+    // -------------------------------------------------------------------
+    const io = getIO();
+    if (io) {
+      if (normalizedStatus === 'Active') {
+        // Fetch the blocked domains from the associated rule set
+        let blockedDomains: string[] = [];
+        let blockedApps: string[] = [];
+        if (session.ruleSetId) {
+          try {
+            const rule = await Rule.findById(session.ruleSetId);
+            if (rule && rule.mode === 'Blocklist') {
+              blockedDomains = rule.websites || [];
+              blockedApps = rule.applications || [];
+            }
+          } catch (ruleErr) {
+            console.warn('[session-status] Failed to fetch rule for socket emit:', ruleErr);
+          }
+        }
+
+        io.emit('session_started', {
+          sessionId: String(session._id),
+          title: session.title,
+          course: session.course,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          blockedDomains,
+          blockedApps,
+        });
+        console.log(`[socket] Emitted session_started for ${session._id}`);
+      }
+
+      if (['Completed', 'Cancelled'].includes(normalizedStatus)) {
+        io.emit('session_ended', {
+          sessionId: String(session._id),
+          title: session.title,
+          previousStatus,
+          newStatus: normalizedStatus,
+        });
+        console.log(`[socket] Emitted session_ended for ${session._id}`);
+      }
+    }
 
     return sendSuccess(res, session, 'Session status updated successfully');
   } catch (err: any) {
