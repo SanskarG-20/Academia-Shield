@@ -93,6 +93,12 @@ export const requestOtp = async (req: Request, res: Response) => {
       return sendError(res, 'sapId must be exactly 12 digits', 400);
     }
 
+    // 60-second rate limit
+    const lastOtp = await Otp.findOne({ sapId }).sort({ createdAt: -1 });
+    if (lastOtp && (lastOtp as any).createdAt && (lastOtp as any).createdAt.getTime() > Date.now() - 60000) {
+      return sendError(res, 'Please wait 60 seconds before requesting another OTP', 429);
+    }
+
     const otpMode = (process.env.STUDENT_OTP_MODE || 'mock').toLowerCase();
     const mockOtp = resolveMockOtp();
     const randomOtp = Math.floor(100000 + Math.random() * 900000).toString();

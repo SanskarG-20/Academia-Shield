@@ -26,6 +26,7 @@ import {
   joinBatch,
   updateSessionStatus,
 } from '../lib/api';
+import { getSocket } from '../lib/socket';
 import { SessionCard } from '../components/SessionCard';
 import { CreateSessionModal } from '../components/CreateSessionModal';
 
@@ -107,6 +108,19 @@ export const Sessions: React.FC = () => {
     const interval = setInterval(() => {
       fetchAll(false);
     }, 15000);
+
+    const socket = getSocket();
+    if (socket) {
+      const onStudentJoined = () => {
+        fetchAll(false); // Refresh silently in the background
+      };
+      socket.on('student_joined', onStudentJoined);
+      return () => {
+        clearInterval(interval);
+        socket.off('student_joined', onStudentJoined);
+      };
+    }
+
     return () => clearInterval(interval);
   }, [isStudent]);
 

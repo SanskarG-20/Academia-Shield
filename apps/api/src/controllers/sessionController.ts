@@ -239,6 +239,14 @@ export const joinSession = async (req: Request | any, res: Response) => {
       `[session-join] student=${req.user.id} joined session=${session._id} status=${session.status}`
     );
 
+    const io = getIO();
+    if (io) {
+      io.emit('student_joined', {
+        sessionId: String(session._id),
+        studentId: req.user.id,
+      });
+    }
+
     return sendSuccess(
       res,
       {
