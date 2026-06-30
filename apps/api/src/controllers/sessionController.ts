@@ -106,6 +106,22 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
 
     const previousStatus = session.status;
 
+    if (previousStatus === normalizedStatus) {
+      return sendError(res, `Session is already ${normalizedStatus}`, 400);
+    }
+
+    if (['Completed', 'Cancelled'].includes(previousStatus)) {
+      return sendError(res, `Cannot change status of a ${previousStatus.toLowerCase()} session`, 400);
+    }
+
+    if (previousStatus === 'Upcoming' && !['Active', 'Cancelled'].includes(normalizedStatus)) {
+      return sendError(res, `Upcoming sessions can only be changed to Active or Cancelled`, 400);
+    }
+
+    if (previousStatus === 'Active' && !['Completed', 'Cancelled'].includes(normalizedStatus)) {
+       return sendError(res, `Active sessions can only be changed to Completed or Cancelled`, 400);
+    }
+
     session.status = normalizedStatus as any;
 
     if (normalizedStatus === 'Active') {

@@ -29,9 +29,11 @@ export const StudentSession: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  async function loadData() {
+  async function loadData(showLoadingState = true) {
     try {
-      setLoading(true);
+      if (showLoadingState) {
+        setLoading(true);
+      }
       const [profile, sessionsData, myBatchesData, agentData] = await Promise.all([
         getMe(),
         getSessions(),
@@ -47,13 +49,15 @@ export const StudentSession: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to load student sessions.');
     } finally {
-      setLoading(false);
+      if (showLoadingState) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 15000);
+    loadData(true);
+    const interval = setInterval(() => loadData(false), 15000);
     return () => clearInterval(interval);
   }, []);
 

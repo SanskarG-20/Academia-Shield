@@ -70,9 +70,11 @@ export const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  async function loadDashboard() {
+  async function loadDashboard(showLoadingState = true) {
     try {
-      setLoading(true);
+      if (showLoadingState) {
+        setLoading(true);
+      }
 
       const [profile, sessionsData, logsData, agentData] = await Promise.all([
         getMe(),
@@ -98,13 +100,15 @@ export const Dashboard: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to load dashboard data.');
     } finally {
-      setLoading(false);
+      if (showLoadingState) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
-    loadDashboard();
-    const interval = setInterval(loadDashboard, 15000);
+    loadDashboard(true);
+    const interval = setInterval(() => loadDashboard(false), 15000);
     return () => clearInterval(interval);
   }, [isStudent]);
 

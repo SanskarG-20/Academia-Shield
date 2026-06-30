@@ -52,6 +52,8 @@ from enforcement.hosts import HostsEnforcementEngine, normalize_domain_list
 LOGGER = setup_logger()
 SYNC_EVENT = threading.Event()
 RUNNING = True
+LAST_APPLIED_DOMAINS = None
+LAST_STATE = None
 
 
 # ---------------------------------------------------------------------------
@@ -125,15 +127,27 @@ def sync_once(engine):
     if domains_to_block:
         LOGGER.info("Blocked domain set from API: %s", ", ".join(domains_to_block))
 
+    global LAST_APPLIED_DOMAINS, LAST_STATE
+
     if should_block:
         normalized = normalize_domain_list(domains_to_block)
-        LOGGER.info("Applying blocking rules for %s domains via %s", len(normalized), engine.name)
-        engine.apply_rules(normalized)
-        report_to_server("BLOCK_APPLIED", normalized)
+        current_domains_set = set(normalized)
+        
+        if LAST_STATE != "ACTIVE" or LAST_APPLIED_DOMAINS != current_domains_set:
+            LOGGER.info("Applying blocking rules for %s domains via %s", len(normalized), engine.name)
+            engine.apply_rules(normalized)
+            report_to_server("BLOCK_APPLIED", normalized)
+            LAST_STATE = "ACTIVE"
+            LAST_APPLIED_DOMAINS = current_domains_set
+        else:
+            LOGGER.debug("Blocking rules unchanged; skipping enforcement update")
     else:
-        LOGGER.info("STANDBY | no active blocking session")
-        engine.restore_rules()
-        report_to_server("BLOCK_REMOVED")
+        if LAST_STATE != "STANDBY":
+            LOGGER.info("STANDBY | no active blocking session")
+            engine.restore_rules()
+            report_to_server("BLOCK_REMOVED")
+            LAST_STATE = "STANDBY"
+            LAST_APPLIED_DOMAINS = set()
 
 
 # ---------------------------------------------------------------------------
