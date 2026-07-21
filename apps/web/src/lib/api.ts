@@ -1,6 +1,12 @@
 import { Batch, LogEntry, RuleSet, Session, UserProfile } from '../types';
 
-export const BASE_URL = 'http://localhost:5000';
+// Get API URL from environment or use localhost for development
+const API_URL = import.meta.env.VITE_API_URL;
+export const BASE_URL = API_URL || 'http://localhost:5000';
+
+if (!API_URL && typeof window !== 'undefined') {
+  console.warn('[api] VITE_API_URL not set, using localhost');
+}
 
 type ApiEnvelope<T> = {
   success: boolean;
