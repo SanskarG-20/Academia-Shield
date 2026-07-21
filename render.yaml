@@ -3,8 +3,9 @@ services:
     name: academia-shield-api
     plan: free
     env: node
+    rootDir: apps/api
     buildCommand: npm install && npm run build
-    startCommand: cd apps/api && npm start
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
