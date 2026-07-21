@@ -20,11 +20,25 @@ def parse_bool(value, default=False):
 # ---------------------------------------------------------------------------
 # Core Settings
 # ---------------------------------------------------------------------------
+# Support both full API_URL or individual SERVER_IP/SERVER_PORT
+API_URL = os.getenv("API_URL", "").strip()
 TEST_MODE = parse_bool(os.getenv("TEST_MODE"), True)
-SERVER_IP = os.getenv("SERVER_IP", "127.0.0.1" if TEST_MODE else "192.168.137.1")
-SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
+
+if API_URL:
+    # Parse API_URL (e.g., https://academia-shield-api.onrender.com)
+    from urllib.parse import urlparse
+    parsed = urlparse(API_URL)
+    SERVER_IP = parsed.hostname or "127.0.0.1"
+    SERVER_PORT = parsed.port or (443 if parsed.scheme == "https" else 80)
+    USE_HTTPS = parsed.scheme == "https"
+else:
+    # Fallback to individual environment variables
+    SERVER_IP = os.getenv("SERVER_IP", "127.0.0.1" if TEST_MODE else "192.168.137.1")
+    SERVER_PORT = int(os.getenv("SERVER_PORT", "5000"))
+    USE_HTTPS = parse_bool(os.getenv("USE_HTTPS"), False)
+
 POLL_INTERVAL = max(5, min(int(os.getenv("POLL_INTERVAL", "8")), 10))
-REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "5"))
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
 RETRY_ATTEMPTS = int(os.getenv("RETRY_ATTEMPTS", "3"))
 RETRY_BACKOFF_SECONDS = int(os.getenv("RETRY_BACKOFF_SECONDS", "2"))
 

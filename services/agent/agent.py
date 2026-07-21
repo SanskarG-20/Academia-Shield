@@ -9,19 +9,35 @@ Usage:
     python agent.py
 
 Environment Variables:
-    ENFORCEMENT_MODE   — "HOSTS" (default) or "DNS"
-    SOCKET_ENABLED     — "true" to enable Socket.IO push (requires python-socketio)
+    API_URL            — Full API URL (e.g., https://academia-shield-api.onrender.com)
     TEST_MODE          — "true" for local development
-    SERVER_IP          — Backend API IP address
+    SERVER_IP          — Backend API IP address (fallback if API_URL not set)
     SERVER_PORT        — Backend API port (default 5000)
     STUDENT_SAP_ID     — Student SAP ID for log attribution
     POLL_INTERVAL      — Polling interval in seconds (5-10, default 8)
+    ENFORCEMENT_MODE   — "HOSTS" (default) or "DNS"
+    SOCKET_ENABLED     — "true" to enable Socket.IO push (requires python-socketio)
 
 See config.py for the full list of configuration options.
 """
 
 import sys
 import os
+
+# Load environment variables from .env file before any other imports
+AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
+env_file = os.path.join(AGENT_DIR, f".env.{os.getenv('NODE_ENV', 'development')}")
+if not os.path.exists(env_file):
+    env_file = os.path.join(AGENT_DIR, ".env")
+
+if os.path.exists(env_file):
+    with open(env_file) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                os.environ.setdefault(key.strip(), value.strip())
+
 import time
 import logging
 import ctypes
@@ -30,7 +46,6 @@ import threading
 
 # Ensure the agent directory is on sys.path so relative imports work
 # regardless of the working directory.
-AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 if AGENT_DIR not in sys.path:
     sys.path.insert(0, AGENT_DIR)
 

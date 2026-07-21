@@ -23,6 +23,7 @@ from config import (
     RETRY_BACKOFF_SECONDS,
     TEST_MODE,
     CACHE_FILE,
+    USE_HTTPS,
 )
 
 LOGGER = logging.getLogger("academia_shield_agent")
@@ -87,11 +88,12 @@ def normalize_config(payload):
 # ---------------------------------------------------------------------------
 def fetch_remote_config_once():
     """Single HTTP GET to the agent config endpoint."""
+    protocol = "https" if USE_HTTPS else "http"
     query = urllib.parse.urlencode({
         "deviceId": AGENT_ID,
         "agentId": AGENT_ID,
     })
-    url = f"http://{SERVER_IP}:{SERVER_PORT}/api/agent/config?{query}"
+    url = f"{protocol}://{SERVER_IP}:{SERVER_PORT}/api/agent/config?{query}"
     req = urllib.request.Request(url)
 
     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as response:
@@ -127,6 +129,7 @@ def fetch_config_with_retry():
 def report_to_server(action, domains=None):
     """POST blocking activity back to the API so professors see live logs."""
     try:
+        protocol = "https" if USE_HTTPS else "http"
         payload = json.dumps({
             "agentId": AGENT_ID,
             "sapId": STUDENT_SAP_ID or None,
@@ -134,7 +137,7 @@ def report_to_server(action, domains=None):
             "domains": list(domains or []),
         }).encode("utf-8")
 
-        url = f"http://{SERVER_IP}:{SERVER_PORT}/api/agent/report"
+        url = f"{protocol}://{SERVER_IP}:{SERVER_PORT}/api/agent/report"
         req = urllib.request.Request(
             url,
             data=payload,
