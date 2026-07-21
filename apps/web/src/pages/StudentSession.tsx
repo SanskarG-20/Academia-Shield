@@ -47,7 +47,11 @@ export const StudentSession: React.FC = () => {
       setAgentConfig(agentData);
       setError('');
     } catch (err: any) {
-      setError(err.message || 'Failed to load student sessions.');
+      if (showLoadingState) {
+        setError(err.message || 'Failed to load student sessions.');
+      } else {
+        console.warn('Background polling failed:', err.message);
+      }
     } finally {
       if (showLoadingState) {
         setLoading(false);

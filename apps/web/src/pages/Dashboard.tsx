@@ -98,7 +98,11 @@ export const Dashboard: React.FC = () => {
 
       setError('');
     } catch (err: any) {
-      setError(err.message || 'Failed to load dashboard data.');
+      if (showLoadingState) {
+        setError(err.message || 'Failed to load dashboard data.');
+      } else {
+        console.warn('Background polling failed:', err.message);
+      }
     } finally {
       if (showLoadingState) {
         setLoading(false);
