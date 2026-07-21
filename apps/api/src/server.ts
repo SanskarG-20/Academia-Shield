@@ -20,9 +20,9 @@ const io = new Server(server, {
   cors: {
     origin: process.env.NODE_ENV === 'production' ? socketAllowedOrigins : true,
     methods: ["GET", "POST"],
-    credentials: true,
-    allowEIO3: true
+    credentials: true
   },
+  allowEIO3: true,
   transports: ['websocket', 'polling']
 });
 
