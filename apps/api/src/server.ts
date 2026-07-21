@@ -10,11 +10,20 @@ const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 // Setup Socket.io
+const socketAllowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  process.env.FRONTEND_URL || '',
+].filter(Boolean);
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "*",
-    methods: ["GET", "POST"]
-  }
+    origin: process.env.NODE_ENV === 'production' ? socketAllowedOrigins : true,
+    methods: ["GET", "POST"],
+    credentials: true,
+    allowEIO3: true
+  },
+  transports: ['websocket', 'polling']
 });
 
 // Initialize Socket Service
