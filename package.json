@@ -14,6 +14,7 @@
     "build:api": "npm run build -w @academia-shield/api",
     "preview": "npm run preview -w @academia-shield/web",
     "seed": "npm run seed -w @academia-shield/api",
+    "start": "node apps/api/dist/server.js",
     "start:api": "npm run start -w @academia-shield/api"
   },
   "devDependencies": {
