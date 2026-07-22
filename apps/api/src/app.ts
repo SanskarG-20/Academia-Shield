@@ -16,13 +16,21 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
+  'https://academia-shield.vercel.app',
   process.env.FRONTEND_URL || '',
 ].filter(Boolean);
 
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' ? allowedOrigins : '*',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (process.env.NODE_ENV !== 'production' || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS not allowed for this origin'));
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(helmet());

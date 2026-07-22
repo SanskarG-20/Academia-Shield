@@ -13,13 +13,14 @@ const server = http.createServer(app);
 const socketAllowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
+  'https://academia-shield.vercel.app',
   process.env.FRONTEND_URL || '',
 ].filter(Boolean);
 
 const io = new Server(server, {
   cors: {
     origin: process.env.NODE_ENV === 'production' ? socketAllowedOrigins : true,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     credentials: true
   },
   allowEIO3: true,
