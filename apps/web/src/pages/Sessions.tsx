@@ -11,6 +11,8 @@ import {
   X,
   School,
   Sparkles,
+  ShieldAlert,
+  CheckCircle,
   Loader2 as Spinner,
 } from 'lucide-react';
 import { Batch, RuleSet, Session, SessionStatus, SessionType } from '../types';
