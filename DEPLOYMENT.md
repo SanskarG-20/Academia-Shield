@@ -5,7 +5,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      Vercel (Frontend)                       │
-│                 https://your-app.vercel.app                  │
+│             https://academia-shield.vercel.app               │
 │              React SPA + Socket.IO Client                    │
 └────────────────────────┬────────────────────────────────────┘
                          │
@@ -52,7 +52,7 @@ MONGODB_URI=mongodb+srv://USERNAME:PASSWORD@cluster.mongodb.net/academia-shield?
 JWT_SECRET=your-very-secure-jwt-secret-min-32-chars
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASS=your-app-password
-FRONTEND_URL=https://your-vercel-app.vercel.app
+FRONTEND_URL=https://academia-shield.vercel.app
 ```
 
 ### Agent (.env.production)

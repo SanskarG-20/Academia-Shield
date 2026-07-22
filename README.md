@@ -1,5 +1,7 @@
 # Academia Shield
 
+🌐 **Live Web Application:** [https://academia-shield.vercel.app/](https://academia-shield.vercel.app/)
+
 **Academia Shield** is a classroom session and policy platform for educators. Professors define **rules** (domains and applications), organize **batches**, and run **sessions**. While a session is active, a lightweight **Python agent** on student machines polls the API and applies restrictions by updating the OS **hosts** file—giving you a practical demo of centralized policy with local enforcement.
 
 ---
