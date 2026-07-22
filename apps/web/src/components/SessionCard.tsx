@@ -67,8 +67,12 @@ export const SessionCard: React.FC<SessionCardProps> = ({
       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">
         {session.title}
         {session.status.toLowerCase() === 'active' && (
-          <span className="ml-2 inline-flex items-center gap-1 bg-red-900/40 text-red-400 text-xs px-2 py-0.5 rounded-full border border-red-700 animate-pulse">
-            🔴 LIVE
+          <span className="ml-2.5 inline-flex items-center gap-1.5 bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 text-xs font-semibold px-2.5 py-0.5 rounded-full border border-rose-300 dark:border-rose-800 shadow-xs">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+            </span>
+            LIVE
           </span>
         )}
       </td>

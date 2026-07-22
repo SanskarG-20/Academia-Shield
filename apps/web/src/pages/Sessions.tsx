@@ -301,15 +301,26 @@ ${logsText}
     <div className="space-y-6">
       {agentConfig &&
         (agentConfig.blocking_active ? (
-          <div className="w-full mb-6 px-5 py-4 rounded-xl border border-red-600 bg-red-950/40 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-red-400 text-xl animate-pulse">🔴</span>
+          <div className="w-full mb-6 px-6 py-4 rounded-2xl border border-rose-300 dark:border-rose-800/80 bg-gradient-to-r from-rose-500/10 via-red-500/10 to-pink-500/10 dark:from-rose-950/50 dark:to-red-950/50 backdrop-blur-md flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+            <div className="flex items-center gap-3.5">
+              <div className="p-2.5 bg-rose-500/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-xl border border-rose-300/50 dark:border-rose-700/50 shadow-xs">
+                <ShieldAlert size={22} className="animate-pulse" />
+              </div>
               <div>
-                <p className="text-red-300 font-semibold text-sm">
-                  BLOCKING IN PROGRESS — {agentConfig.active_sessions?.[0]?.title || 'Active Session'}
-                </p>
-                <p className="text-red-400/70 text-xs mt-0.5">
-                  {agentConfig.domains.length} domains blocked · Ends at{' '}
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                  </span>
+                  <p className="text-rose-950 dark:text-rose-100 font-bold text-sm tracking-wide">
+                    BLOCKING IN PROGRESS — {agentConfig.active_sessions?.[0]?.title || 'Active Session'}
+                  </p>
+                </div>
+                <p className="text-rose-700 dark:text-rose-300 text-xs mt-1 font-medium">
+                  <span className="inline-block font-semibold bg-rose-100 dark:bg-rose-900/60 px-2 py-0.5 rounded-full text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-800 mr-1.5">
+                    {agentConfig.domains.length} domains blocked
+                  </span>
+                  Ends at{' '}
                   {agentConfig.active_sessions?.[0]?.ends_at
                     ? new Date(agentConfig.active_sessions[0].ends_at).toLocaleTimeString([], {
                         hour: '2-digit',
@@ -319,16 +330,31 @@ ${logsText}
                 </p>
               </div>
             </div>
-            <span className="text-xs text-red-500 font-mono">
-              {new Date(agentConfig.server_time).toLocaleTimeString()}
-            </span>
+            <div className="flex items-center gap-2 self-start sm:self-center">
+              <span className="text-xs font-mono font-semibold px-3 py-1 bg-white/80 dark:bg-slate-900/80 text-rose-700 dark:text-rose-300 rounded-full border border-rose-200 dark:border-rose-800 shadow-xs">
+                🕒 {new Date(agentConfig.server_time).toLocaleTimeString()}
+              </span>
+            </div>
           </div>
         ) : (
-          <div className="w-full mb-6 px-5 py-3 rounded-xl border border-green-800 bg-green-950/30 flex items-center gap-3">
-            <span className="text-green-400">🟢</span>
-            <p className="text-green-300 text-sm font-medium">
-              No Active Block Session — Students have unrestricted access
-            </p>
+          <div className="w-full mb-6 px-6 py-4 rounded-2xl border border-emerald-300 dark:border-emerald-800/80 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-green-500/10 dark:from-emerald-950/50 dark:to-teal-950/50 backdrop-blur-md flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-3.5">
+              <div className="p-2.5 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl border border-emerald-300/50 dark:border-emerald-700/50 shadow-xs">
+                <CheckCircle size={22} />
+              </div>
+              <div>
+                <p className="text-emerald-950 dark:text-emerald-100 font-bold text-sm">
+                  No Active Block Session
+                </p>
+                <p className="text-emerald-700 dark:text-emerald-300 text-xs mt-0.5">
+                  Students have unrestricted web access
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-xs font-semibold rounded-full border border-emerald-200 dark:border-emerald-800">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Standby
+            </span>
           </div>
         ))}
 

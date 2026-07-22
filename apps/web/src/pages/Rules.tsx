@@ -139,8 +139,12 @@ export const Rules: React.FC = () => {
               <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate pr-2">{rule.name}</h3>
               <div className="flex gap-2 items-center">
                 {activeRuleIds.includes(rule._id) && (
-                  <span className="bg-red-900/40 text-red-400 text-xs px-2 py-0.5 rounded-full border border-red-700">
-                    🔴 BLOCKING ACTIVE
+                  <span className="inline-flex items-center gap-1.5 bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 text-xs font-semibold px-2.5 py-1 rounded-full border border-rose-300 dark:border-rose-800 shadow-xs">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                    </span>
+                    BLOCKING ACTIVE
                   </span>
                 )}
                 <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium border ${
