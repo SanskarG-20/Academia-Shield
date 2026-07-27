@@ -153,3 +153,35 @@ def report_to_server(action, domains=None):
     except Exception as err:
         # Reporting is best-effort; never block the main enforcement loop.
         LOGGER.warning("Report to server failed (non-fatal): %s", err)
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat / Telemetry
+# ---------------------------------------------------------------------------
+def send_heartbeat(active_app="Unknown", status="online"):
+    """POST periodic heartbeat telemetry to the backend (best-effort)."""
+    if not STUDENT_SAP_ID:
+        return  # Can't send heartbeat without SAP ID
+
+    try:
+        protocol = "https" if USE_HTTPS else "http"
+        payload = json.dumps({
+            "sapId": STUDENT_SAP_ID,
+            "activeApp": active_app,
+            "status": status,
+        }).encode("utf-8")
+
+        url = f"{protocol}://{SERVER_IP}:{SERVER_PORT}/api/agent/heartbeat"
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            LOGGER.debug("Heartbeat sent | sessions=%s", data.get("data", {}).get("sessions", 0))
+
+    except Exception as err:
+        LOGGER.debug("Heartbeat failed (non-fatal): %s", err)

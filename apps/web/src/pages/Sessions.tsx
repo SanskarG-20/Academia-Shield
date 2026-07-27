@@ -31,6 +31,7 @@ import {
 import { getSocket } from '../lib/socket';
 import { SessionCard } from '../components/SessionCard';
 import { CreateSessionModal } from '../components/CreateSessionModal';
+import { SessionLiveMonitorModal } from '../components/SessionLiveMonitorModal';
 
 export const Sessions: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -54,6 +55,8 @@ export const Sessions: React.FC = () => {
   const [summaryModalOpen, setSummaryModalOpen] = useState(false);
   const [aiSummary, setAiSummary] = useState('');
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+
+  const [monitorSession, setMonitorSession] = useState<Session | null>(null);
 
   const userRole = localStorage.getItem('userRole');
   const isStudent = userRole === 'student';
@@ -485,6 +488,7 @@ ${logsText}
                     isStudent={isStudent}
                     batchNameById={batchNameById}
                     onStatusChange={handleStatusChange}
+                    onOpenMonitor={(s) => setMonitorSession(s)}
                     onGenerateSummary={handleGenerateSummary}
                     onDeleteSession={handleDeleteSession}
                     currentTime={currentTime}
@@ -566,6 +570,15 @@ ${logsText}
           <p className="text-sm text-slate-500">Ask your professor for the class code to join sessions.</p>
         </div>
       </Modal>
+
+      {/* Live Command Center Modal */}
+      {monitorSession && (
+        <SessionLiveMonitorModal
+          isOpen={!!monitorSession}
+          onClose={() => setMonitorSession(null)}
+          session={monitorSession}
+        />
+      )}
     </div>
   );
 };

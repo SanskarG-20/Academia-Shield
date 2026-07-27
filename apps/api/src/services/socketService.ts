@@ -99,3 +99,28 @@ export const emitLogEntries = (logs: any[]) => {
     emitLogEntry(log);
   }
 };
+
+/**
+ * Broadcast real-time student telemetry to session-specific rooms.
+ * Used by the Live Command Center to show live student activity grids.
+ */
+export const emitStudentTelemetry = (sessionIds: string[], telemetry: {
+  studentId: string;
+  studentName: string;
+  sapId: string;
+  activeApp: string;
+  status: 'online' | 'idle' | 'offline';
+  engagementScore: number;
+  isViolation: boolean;
+  lastSeen: string;
+}) => {
+  const io = getIO();
+  if (!io) return;
+
+  for (const sessionId of sessionIds) {
+    io.to(sessionId).emit('student_telemetry', {
+      sessionId,
+      ...telemetry,
+    });
+  }
+};

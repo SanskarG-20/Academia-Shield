@@ -61,7 +61,7 @@ from config import (
     SOCKET_URL,
 )
 from logger import setup_logger
-from comms.http_client import fetch_config_with_retry, report_to_server
+from comms.http_client import fetch_config_with_retry, report_to_server, send_heartbeat
 from enforcement.hosts import HostsEnforcementEngine, normalize_domain_list
 
 LOGGER = setup_logger()
@@ -69,6 +69,64 @@ SYNC_EVENT = threading.Event()
 RUNNING = True
 LAST_APPLIED_DOMAINS = None
 LAST_STATE = None
+HEARTBEAT_INTERVAL = 15  # seconds between heartbeats
+
+
+# ---------------------------------------------------------------------------
+# Foreground window detection (Windows / Linux / macOS)
+# ---------------------------------------------------------------------------
+def get_active_window_title():
+    """Return the title of the currently focused window, or 'Unknown'."""
+    try:
+        if platform.system() == "Windows":
+            import ctypes
+            hwnd = ctypes.windll.user32.GetForegroundWindow()
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            if length:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+                return buf.value or "Unknown"
+            return "Desktop"
+        elif platform.system() == "Linux":
+            import subprocess
+            result = subprocess.run(
+                ["xdotool", "getactivewindow", "getwindowname"],
+                capture_output=True, text=True, timeout=2,
+            )
+            return result.stdout.strip() or "Unknown"
+        elif platform.system() == "Darwin":
+            import subprocess
+            script = 'tell application "System Events" to get name of first application process whose frontmost is true'
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=2,
+            )
+            return result.stdout.strip() or "Unknown"
+    except Exception:
+        pass
+    return "Unknown"
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat telemetry loop (runs in a daemon thread)
+# ---------------------------------------------------------------------------
+def heartbeat_loop():
+    """Send periodic heartbeats with the foreground window title."""
+    while RUNNING:
+        try:
+            if LAST_STATE == "ACTIVE":
+                title = get_active_window_title()
+                send_heartbeat(active_app=title, status="online")
+            else:
+                send_heartbeat(active_app="Idle", status="idle")
+        except Exception as err:
+            LOGGER.debug("Heartbeat error (non-fatal): %s", err)
+
+        # Sleep in small increments so we can detect RUNNING=False quickly
+        for _ in range(HEARTBEAT_INTERVAL):
+            if not RUNNING:
+                return
+            time.sleep(1)
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +275,11 @@ def main():
             on_session_ended=on_socket_event,
         )
         socket_client.connect()
+
+    # Start heartbeat thread (daemon so it auto-stops with the process)
+    heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
+    heartbeat_thread.start()
+    LOGGER.info("Heartbeat:        every %ss", HEARTBEAT_INTERVAL)
 
     # Apply immediately on startup to ensure restart reliability
     sync_once(engine)

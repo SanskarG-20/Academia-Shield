@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock, AlertCircle, Sparkles, Trash2, Play, Square, XCircle } from 'lucide-react';
+import { Calendar, Clock, AlertCircle, Sparkles, Trash2, Play, Square, XCircle, Eye } from 'lucide-react';
 import { Session, SessionStatus } from '../types';
 import { Button } from './ui/Button';
 
@@ -8,6 +8,7 @@ interface SessionCardProps {
   isStudent: boolean;
   batchNameById?: Record<string, string>;
   onStatusChange: (id: string, newStatus: string) => Promise<void>;
+  onOpenMonitor?: (session: Session) => void;
   onGenerateSummary: (session: Session) => void;
   onDeleteSession: (id: string) => void;
   currentTime: Date;
@@ -18,6 +19,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
   isStudent,
   batchNameById = {},
   onStatusChange,
+  onOpenMonitor,
   onGenerateSummary,
   onDeleteSession,
   currentTime,
@@ -114,9 +116,14 @@ export const SessionCard: React.FC<SessionCardProps> = ({
               </Button>
             )}
             {session.status.toLowerCase() === 'active' && (
-              <Button size="sm" variant="danger" className="h-8 !px-2" onClick={() => onStatusChange(sessionId, 'completed')}>
-                <Square size={14} className="mr-1" /> End
-              </Button>
+              <>
+                <Button size="sm" variant="outline" className="h-8 !px-2 !border-brand-500 !text-brand-600 dark:!text-brand-400" onClick={() => onOpenMonitor?.(session)}>
+                  <Eye size={14} className="mr-1" /> Live Monitor
+                </Button>
+                <Button size="sm" variant="danger" className="h-8 !px-2" onClick={() => onStatusChange(sessionId, 'completed')}>
+                  <Square size={14} className="mr-1" /> End
+                </Button>
+              </>
             )}
             {session.status.toLowerCase() === 'upcoming' && (
               <Button size="sm" variant="ghost" className="h-8 !px-2 text-slate-500" onClick={() => onStatusChange(sessionId, 'cancelled')}>

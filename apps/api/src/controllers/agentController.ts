@@ -5,7 +5,7 @@ import Rule from '../models/Rule';
 import Log from '../models/Log';
 import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
-import { emitLogEntries } from '../services/socketService';
+import { emitLogEntries, emitStudentTelemetry } from '../services/socketService';
 
 const parseBoolean = (value: string | undefined, fallback = false) => {
   if (typeof value !== 'string') {
@@ -233,5 +233,61 @@ export const reportAgentActivity = async (req: Request, res: Response) => {
     );
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to log agent activity', 500);
+  }
+};
+
+// @desc    Receive periodic heartbeat/telemetry from the desktop agent (NO AUTH)
+// @route   POST /api/agent/heartbeat
+export const reportAgentHeartbeat = async (req: Request, res: Response) => {
+  try {
+    const { sapId, activeApp, status } = req.body || {};
+
+    if (!sapId) {
+      return sendError(res, 'sapId is required for heartbeat', 400);
+    }
+
+    const student = await Student.findOne({ sapId: String(sapId).trim() }).select('_id name sapId');
+    if (!student) {
+      return sendSuccess(res, { acknowledged: false }, 'Student not found');
+    }
+
+    // Find active sessions
+    const now = new Date();
+    const activeSessions = await Session.find({
+      status: 'Active',
+      startTime: { $lte: now },
+      endTime: { $gte: now },
+    }).select('_id');
+
+    if (activeSessions.length === 0) {
+      return sendSuccess(res, { acknowledged: true, sessions: 0 }, 'No active sessions');
+    }
+
+    const sessionIds = activeSessions.map((s) => String(s._id));
+    const appName = String(activeApp || 'Unknown').trim();
+    const agentStatus = ['online', 'idle', 'offline'].includes(status) ? status : 'online';
+
+    // Determine engagement and violation from the active app
+    // If activeApp contains a blocked domain, it's a violation
+    const isViolation = false; // Agent will set this explicitly if needed
+    const engagementScore = agentStatus === 'online' ? 85 : agentStatus === 'idle' ? 50 : 0;
+
+    emitStudentTelemetry(sessionIds, {
+      studentId: String(student._id),
+      studentName: student.name || 'Unknown',
+      sapId: student.sapId || sapId,
+      activeApp: appName,
+      status: agentStatus,
+      engagementScore,
+      isViolation,
+      lastSeen: now.toISOString(),
+    });
+
+    return sendSuccess(res, {
+      acknowledged: true,
+      sessions: sessionIds.length,
+    }, 'Heartbeat received');
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to process heartbeat', 500);
   }
 };
