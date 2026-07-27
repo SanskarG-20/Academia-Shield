@@ -37,5 +37,13 @@ apps/web/.env
 *.sln
 *.sw?
 
-# Agent runtime cache (optional)
+# Python build & cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.backup
+services/agent/build/
+services/agent/dist/
+services/agent/*.spec
 services/agent/last_config.json
