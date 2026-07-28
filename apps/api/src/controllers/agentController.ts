@@ -56,11 +56,9 @@ export const getAgentConfig = async (req: Request, res: Response) => {
       );
     }
 
-    // 1. Fetch only currently active-in-window sessions.
+    // 1. Fetch active sessions (any session with status 'Active').
     const currentSessions = await Session.find({
       status: 'Active',
-      startTime: { $lte: now },
-      endTime: { $gte: now },
     }).select('_id title endTime ruleSetId');
 
     // 2. Fetch rules for matching sessions.
@@ -161,12 +159,10 @@ export const reportAgentActivity = async (req: Request, res: Response) => {
       studentId = new mongoose.Types.ObjectId(hex);
     }
 
-    // Find active sessions (same criteria as getAgentConfig).
+    // Find active sessions.
     const now = new Date();
     const activeSessions = await Session.find({
       status: 'Active',
-      startTime: { $lte: now },
-      endTime: { $gte: now },
     }).select('_id title');
 
     if (activeSessions.length === 0) {
@@ -255,9 +251,7 @@ export const reportAgentHeartbeat = async (req: Request, res: Response) => {
     const now = new Date();
     const activeSessions = await Session.find({
       status: 'Active',
-      startTime: { $lte: now },
-      endTime: { $gte: now },
-    }).select('_id');
+    }).select('_id ruleSetId');
 
     if (activeSessions.length === 0) {
       return sendSuccess(res, { acknowledged: true, sessions: 0 }, 'No active sessions');
@@ -267,10 +261,13 @@ export const reportAgentHeartbeat = async (req: Request, res: Response) => {
     const appName = String(activeApp || 'Unknown').trim();
     const agentStatus = ['online', 'idle', 'offline'].includes(status) ? status : 'online';
 
-    // Determine engagement and violation from the active app
-    // If activeApp contains a blocked domain, it's a violation
-    const isViolation = false; // Agent will set this explicitly if needed
-    const engagementScore = agentStatus === 'online' ? 85 : agentStatus === 'idle' ? 50 : 0;
+    // Check if activeApp matches any blocked domains
+    const ruleIds = activeSessions.map((s) => s.ruleSetId).filter(Boolean);
+    const rules = await Rule.find({ _id: { $in: ruleIds } });
+    const blockedDomains = rules.flatMap((r) => r.websites || []).map((w) => w.toLowerCase());
+    
+    const isViolation = blockedDomains.some((d) => d && appName.toLowerCase().includes(d));
+    const engagementScore = isViolation ? 10 : agentStatus === 'online' ? 85 : agentStatus === 'idle' ? 50 : 0;
 
     emitStudentTelemetry(sessionIds, {
       studentId: String(student._id),

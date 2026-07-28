@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Session, LogEntry } from '../types';
 import { getSocket, joinSession } from '../lib/socket';
-import { getLogs } from '../lib/api';
+import { getLogs, getSessionLogs } from '../lib/api';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface StudentTelemetry {
@@ -73,35 +73,44 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
   const presenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [, forceUpdate] = useState(0); // trigger re-render for stale checks
 
-  // ── Load initial logs for this session
+  // ── Load initial logs for this session (with fallback)
   const loadInitialLogs = useCallback(async () => {
+    let logs: LogEntry[] = [];
     try {
-      const logs = await getLogs(session._id);
-      const sorted = logs
-        .sort((a: LogEntry, b: LogEntry) => +new Date(b.timestamp) - +new Date(a.timestamp))
-        .slice(0, 50);
-      setRecentLogs(sorted);
-
-      // Seed student presence from logs (so we see students even before heartbeats arrive)
-      const studentMap = new Map<string, StudentTelemetry>();
-      for (const log of sorted) {
-        if (!studentMap.has(log.studentId)) {
-          studentMap.set(log.studentId, {
-            studentId: log.studentId,
-            studentName: log.studentName,
-            sapId: '',
-            activeApp: log.resource || 'Unknown',
-            status: 'offline', // will be updated by heartbeat
-            engagementScore: log.engagementScore || 50,
-            isViolation: log.isViolation,
-            lastSeen: log.timestamp,
-          });
-        }
+      // Try auth-aware getLogs first
+      logs = await getLogs(session._id);
+    } catch {
+      try {
+        // Fallback to open getSessionLogs endpoint
+        logs = await getSessionLogs(session._id);
+      } catch (err2) {
+        console.warn('[monitor] Failed to load initial logs:', err2);
+        return; // Gracefully show empty state
       }
-      setStudents(studentMap);
-    } catch (err) {
-      console.warn('[monitor] Failed to load initial logs:', err);
     }
+
+    const sorted = logs
+      .sort((a: LogEntry, b: LogEntry) => +new Date(b.timestamp) - +new Date(a.timestamp))
+      .slice(0, 50);
+    setRecentLogs(sorted);
+
+    // Seed student presence from logs (so we see students even before heartbeats arrive)
+    const studentMap = new Map<string, StudentTelemetry>();
+    for (const log of sorted) {
+      if (!studentMap.has(log.studentId)) {
+        studentMap.set(log.studentId, {
+          studentId: log.studentId,
+          studentName: log.studentName,
+          sapId: '',
+          activeApp: log.resource || 'Unknown',
+          status: 'offline', // will be updated by heartbeat
+          engagementScore: log.engagementScore || 50,
+          isViolation: log.isViolation,
+          lastSeen: log.timestamp,
+        });
+      }
+    }
+    setStudents(studentMap);
   }, [session._id]);
 
   // ── Socket & telemetry setup

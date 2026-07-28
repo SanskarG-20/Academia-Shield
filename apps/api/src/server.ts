@@ -9,17 +9,31 @@ const PORT = process.env.PORT || 5000;
 
 const server = http.createServer(app);
 
-// Setup Socket.io
-const socketAllowedOrigins = [
+// Setup Socket.io with dynamic CORS origin matching
+const socketAllowedOrigins = new Set([
   'http://localhost:3000',
   'http://localhost:5173',
   'https://academia-shield.vercel.app',
   process.env.FRONTEND_URL || '',
-].filter(Boolean);
+].filter(Boolean));
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' ? socketAllowedOrigins : true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (agents, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      // In development, allow everything
+      if (process.env.NODE_ENV !== 'production') return callback(null, true);
+      // Allow exact matches, any .vercel.app subdomain, and localhost
+      if (
+        socketAllowedOrigins.has(origin) ||
+        origin.endsWith('.vercel.app') ||
+        origin.startsWith('http://localhost')
+      ) {
+        return callback(null, true);
+      }
+      return callback(new Error('Socket.IO CORS rejected'));
+    },
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE"],
     credentials: true
   },

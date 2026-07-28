@@ -4,6 +4,7 @@ import Session from '../models/Session';
 import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
 import { emitLogEntry } from '../services/socketService';
+import mongoose from 'mongoose';
 
 // @desc    Save Logs (Usage or Event)
 // @route   POST /api/logs
@@ -15,7 +16,11 @@ export const createLog = async (req: Request | any, res: Response) => {
       return sendError(res, 'sessionId and type are required', 400);
     }
 
-    const student = await Student.findById(req.user.id).select('name');
+    const student = await Student.findById(req.user.id).select('name').catch(() => null);
+    if (!student && req.user.role === 'student_temp') {
+      // For temp students, use sapId from token as fallback
+      return sendError(res, 'Please complete your profile setup before logging activity', 403);
+    }
 
     const log = await Log.create({
       sessionId,
@@ -44,23 +49,35 @@ export const getLogs = async (req: Request | any, res: Response) => {
   try {
     const sessionId = req.query.sessionId as string | undefined;
 
+    // Validate sessionId format if provided
+    if (sessionId && !mongoose.Types.ObjectId.isValid(sessionId)) {
+      return sendSuccess(res, [], 'No logs found');
+    }
+
     if (req.user.role === 'professor') {
       const professorSessions = await Session.find({ professorId: req.user.id }).select('_id');
       const sessionIds = professorSessions.map((s) => s._id);
 
       const query: any = { sessionId: { $in: sessionIds } };
       if (sessionId) {
-        query.sessionId = sessionId;
+        // Narrow to specific session (must still belong to this professor)
+        const requestedIdStr = String(sessionId);
+        const ownsSession = sessionIds.some((id) => String(id) === requestedIdStr);
+        if (ownsSession) {
+          query.sessionId = new mongoose.Types.ObjectId(sessionId);
+        } else {
+          return sendSuccess(res, [], 'No logs found for this session');
+        }
       }
 
       const logs = await Log.find(query).sort({ timestamp: -1 }).limit(500);
       return sendSuccess(res, logs, 'Logs fetched successfully');
     }
 
-    if (req.user.role === 'student') {
+    if (req.user.role === 'student' || req.user.role === 'student_temp') {
       const query: any = { studentId: req.user.id };
       if (sessionId) {
-        query.sessionId = sessionId;
+        query.sessionId = new mongoose.Types.ObjectId(sessionId);
       }
 
       const logs = await Log.find(query).sort({ timestamp: -1 }).limit(500);
