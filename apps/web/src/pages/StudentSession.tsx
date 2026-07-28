@@ -106,6 +106,16 @@ export const StudentSession: React.FC = () => {
       await joinSession(sessionId);
       setCurrentSessionId(sessionId);
       setIsWorking(true);
+
+      // Log initial join event so professor monitor updates instantly
+      await createLog({
+        sessionId,
+        type: 'EVENT',
+        resource: 'system',
+        details: 'Student joined live session',
+        engagementScore: 90,
+        isViolation: false,
+      }).catch(() => null);
     } catch (err: any) {
       alert(err.message || 'Unable to join this session. Please join the class batch first.');
     }

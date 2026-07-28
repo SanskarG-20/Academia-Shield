@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Session, LogEntry } from '../types';
 import { getSocket, joinSession } from '../lib/socket';
-import { getLogs, getSessionLogs } from '../lib/api';
+import { getLogs, getSessionLogs, getBatchById } from '../lib/api';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface StudentTelemetry {
@@ -73,19 +73,47 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
   const presenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [, forceUpdate] = useState(0); // trigger re-render for stale checks
 
-  // ── Load initial logs for this session (with fallback)
+  // ── Load initial logs & enrolled batch students for this session
   const loadInitialLogs = useCallback(async () => {
+    const studentMap = new Map<string, StudentTelemetry>();
+
+    // 1. Pre-populate enrolled students from mapped batches
+    if (Array.isArray(session.batchIds) && session.batchIds.length > 0) {
+      try {
+        const batchPromises = session.batchIds.map((bId) => getBatchById(bId).catch(() => null));
+        const batches = await Promise.all(batchPromises);
+        for (const batch of batches) {
+          if (batch && Array.isArray(batch.students)) {
+            for (const s of batch.students) {
+              if (s && s._id && !studentMap.has(s._id)) {
+                studentMap.set(s._id, {
+                  studentId: s._id,
+                  studentName: s.name || 'Enrolled Student',
+                  sapId: s.sapId || '',
+                  activeApp: 'Not Joined Yet',
+                  status: 'offline',
+                  engagementScore: 0,
+                  isViolation: false,
+                  lastSeen: new Date(0).toISOString(),
+                });
+              }
+            }
+          }
+        }
+      } catch (errBatch) {
+        console.warn('[monitor] Failed to load batch students:', errBatch);
+      }
+    }
+
+    // 2. Load activity logs
     let logs: LogEntry[] = [];
     try {
-      // Try auth-aware getLogs first
       logs = await getLogs(session._id);
     } catch {
       try {
-        // Fallback to open getSessionLogs endpoint
         logs = await getSessionLogs(session._id);
       } catch (err2) {
         console.warn('[monitor] Failed to load initial logs:', err2);
-        return; // Gracefully show empty state
       }
     }
 
@@ -94,24 +122,23 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
       .slice(0, 50);
     setRecentLogs(sorted);
 
-    // Seed student presence from logs (so we see students even before heartbeats arrive)
-    const studentMap = new Map<string, StudentTelemetry>();
+    // 3. Update student presence from logs
     for (const log of sorted) {
-      if (!studentMap.has(log.studentId)) {
-        studentMap.set(log.studentId, {
-          studentId: log.studentId,
-          studentName: log.studentName,
-          sapId: '',
-          activeApp: log.resource || 'Unknown',
-          status: 'offline', // will be updated by heartbeat
-          engagementScore: log.engagementScore || 50,
-          isViolation: log.isViolation,
-          lastSeen: log.timestamp,
-        });
-      }
+      const existing = studentMap.get(log.studentId);
+      studentMap.set(log.studentId, {
+        studentId: log.studentId,
+        studentName: log.studentName || existing?.studentName || 'Student',
+        sapId: existing?.sapId || '',
+        activeApp: log.resource || existing?.activeApp || 'Unknown',
+        status: existing?.status || 'offline',
+        engagementScore: log.engagementScore || 50,
+        isViolation: log.isViolation,
+        lastSeen: log.timestamp,
+      });
     }
+
     setStudents(studentMap);
-  }, [session._id]);
+  }, [session._id, session.batchIds]);
 
   // ── Socket & telemetry setup
   useEffect(() => {
@@ -124,6 +151,27 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
 
     const onConnect = () => setSocketConnected(true);
     const onDisconnect = () => setSocketConnected(false);
+
+    // Student Joined Event
+    const onStudentJoined = (data: any) => {
+      if (data.sessionId !== session._id) return;
+
+      setStudents((prev) => {
+        const updated = new Map(prev);
+        const existing = updated.get(data.studentId);
+        updated.set(data.studentId, {
+          studentId: data.studentId,
+          studentName: existing?.studentName || 'Student',
+          sapId: existing?.sapId || '',
+          activeApp: 'Joined Session',
+          status: 'online',
+          engagementScore: 85,
+          isViolation: false,
+          lastSeen: new Date().toISOString(),
+        });
+        return updated;
+      });
+    };
 
     // Live student telemetry from agent heartbeats
     const onStudentTelemetry = (data: any) => {
@@ -187,6 +235,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+    socket.on('student_joined', onStudentJoined);
     socket.on('student_telemetry', onStudentTelemetry);
     socket.on('live_log_update', onLiveLog);
 
@@ -200,6 +249,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
+      socket.off('student_joined', onStudentJoined);
       socket.off('student_telemetry', onStudentTelemetry);
       socket.off('live_log_update', onLiveLog);
       if (presenceTimerRef.current) clearInterval(presenceTimerRef.current);
@@ -317,7 +367,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Time Remaining</p>
               <p className="text-lg font-bold text-slate-900 dark:text-white">
-                {timeLeftMin}m
+                {timeLeftMin > 0 ? `${timeLeftMin}m` : session.status.toLowerCase() === 'active' ? 'Active' : 'Ended'}
               </p>
             </div>
           </div>
