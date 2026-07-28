@@ -215,19 +215,21 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
         return [entry, ...prev].slice(0, 50);
       });
 
-      // Also update student card if violation
-      if (entry.isViolation) {
+      // Always update student card presence on every log event
+      if (entry.studentId) {
         setStudents((prev) => {
           const updated = new Map(prev);
           const existing = updated.get(entry.studentId);
-          if (existing) {
-            updated.set(entry.studentId, {
-              ...existing,
-              isViolation: true,
-              activeApp: entry.resource || existing.activeApp,
-              lastSeen: entry.timestamp,
-            });
-          }
+          updated.set(entry.studentId, {
+            studentId: entry.studentId,
+            studentName: entry.studentName || existing?.studentName || 'Student',
+            sapId: existing?.sapId || '',
+            activeApp: entry.resource || existing?.activeApp || 'Unknown',
+            status: 'online',
+            engagementScore: entry.engagementScore ?? existing?.engagementScore ?? 50,
+            isViolation: entry.isViolation || false,
+            lastSeen: entry.timestamp,
+          });
           return updated;
         });
       }
