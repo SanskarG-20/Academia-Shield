@@ -17,8 +17,10 @@ export const Settings: React.FC = () => {
   });
 
   useEffect(() => {
-    if (document.documentElement.classList.contains('dark')) {
+    const storedTheme = localStorage.getItem('theme');
+    if (storedTheme === 'dark' || (!storedTheme && document.documentElement.classList.contains('dark'))) {
       setDarkMode(true);
+      document.documentElement.classList.add('dark');
     }
 
     const loadProfile = async () => {
@@ -46,8 +48,10 @@ export const Settings: React.FC = () => {
     setDarkMode(isDark);
     if (isDark) {
       document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
     } else {
       document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
     }
   };
 
@@ -148,7 +152,7 @@ export const Settings: React.FC = () => {
               <h4 className="font-medium text-slate-900 dark:text-white">Password</h4>
               <p className="text-sm text-slate-500">Managed by your institution auth workflow.</p>
             </div>
-            <Button variant="secondary" icon={<Lock size={16} />}>
+            <Button variant="secondary" icon={<Lock size={16} />} disabled title="Managed by your institution auth workflow.">
               Change Password
             </Button>
           </div>
@@ -159,8 +163,8 @@ export const Settings: React.FC = () => {
         <div className="flex gap-4 items-center text-slate-500 text-sm">
           <Info size={20} />
           <div>
-            <p className="font-medium text-slate-900 dark:text-white">Academia Shield v2.4.1</p>
-            <p>Build 2026.04.12. Demo Branch.</p>
+            <p className="font-medium text-slate-900 dark:text-white">Academia Shield</p>
+            <p>Production Build.</p>
           </div>
         </div>
       </Card>
