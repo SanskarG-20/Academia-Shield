@@ -24,6 +24,7 @@ interface StudentTelemetry {
   engagementScore: number;
   isViolation: boolean;
   lastSeen: string;
+  lastActivityAt: number; // Date.now() when we last received ANY event for this student
 }
 
 interface SessionLiveMonitorModalProps {
@@ -33,11 +34,12 @@ interface SessionLiveMonitorModalProps {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-const STALE_THRESHOLD_MS = 30_000; // 30s without heartbeat → idle
-const OFFLINE_THRESHOLD_MS = 60_000; // 60s → offline
+const STALE_THRESHOLD_MS = 45_000; // 45s without activity → idle (accounts for 15s polling gap + network delay)
+const OFFLINE_THRESHOLD_MS = 90_000; // 90s → offline
 
-const getPresenceStatus = (lastSeen: string): 'online' | 'idle' | 'offline' => {
-  const delta = Date.now() - new Date(lastSeen).getTime();
+const getPresenceStatus = (lastActivityAt: number): 'online' | 'idle' | 'offline' => {
+  if (lastActivityAt === 0) return 'offline'; // never seen (batch pre-populated)
+  const delta = Date.now() - lastActivityAt;
   if (delta < STALE_THRESHOLD_MS) return 'online';
   if (delta < OFFLINE_THRESHOLD_MS) return 'idle';
   return 'offline';
@@ -95,6 +97,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                   engagementScore: 0,
                   isViolation: false,
                   lastSeen: new Date(0).toISOString(),
+                  lastActivityAt: 0, // never seen
                 });
               }
             }
@@ -122,18 +125,26 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
       .slice(0, 50);
     setRecentLogs(sorted);
 
-    // 3. Update student presence from logs
+    // 3. Update student presence from historical logs
+    // Use the log timestamps to determine if the student was recently active
+    const now = Date.now();
     for (const log of sorted) {
       const existing = studentMap.get(log.studentId);
+      const logTime = new Date(log.timestamp).getTime();
+      // If the log is recent (within our offline threshold), treat the student as having been active
+      const activityAt = (now - logTime < OFFLINE_THRESHOLD_MS) ? logTime : 0;
+      // Only update if this log is newer than what we have
+      const currentActivityAt = existing?.lastActivityAt || 0;
       studentMap.set(log.studentId, {
         studentId: log.studentId,
         studentName: log.studentName || existing?.studentName || 'Student',
         sapId: existing?.sapId || '',
         activeApp: log.resource || existing?.activeApp || 'Unknown',
-        status: existing?.status || 'offline',
+        status: 'offline', // will be recalculated
         engagementScore: log.engagementScore || 50,
         isViolation: log.isViolation,
         lastSeen: log.timestamp,
+        lastActivityAt: Math.max(currentActivityAt, activityAt),
       });
     }
 
@@ -168,6 +179,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
           engagementScore: 85,
           isViolation: false,
           lastSeen: new Date().toISOString(),
+          lastActivityAt: Date.now(), // ← KEY: real client-side timestamp
         });
         return updated;
       });
@@ -179,15 +191,17 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
 
       setStudents((prev) => {
         const updated = new Map(prev);
+        const existing = updated.get(data.studentId);
         updated.set(data.studentId, {
           studentId: data.studentId,
-          studentName: data.studentName || 'Unknown',
-          sapId: data.sapId || '',
+          studentName: data.studentName || existing?.studentName || 'Unknown',
+          sapId: data.sapId || existing?.sapId || '',
           activeApp: data.activeApp || 'Unknown',
-          status: data.status || 'online',
+          status: 'online',
           engagementScore: data.engagementScore ?? 50,
           isViolation: Boolean(data.isViolation),
           lastSeen: data.lastSeen || new Date().toISOString(),
+          lastActivityAt: Date.now(), // ← KEY: real client-side timestamp
         });
         return updated;
       });
@@ -229,6 +243,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
             engagementScore: entry.engagementScore ?? existing?.engagementScore ?? 50,
             isViolation: entry.isViolation || false,
             lastSeen: entry.timestamp,
+            lastActivityAt: Date.now(), // ← KEY: real client-side timestamp
           });
           return updated;
         });
@@ -269,10 +284,10 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
 
   if (!isOpen) return null;
 
-  // ── Derived stats
+  // ── Derived stats (uses lastActivityAt for presence, NOT server timestamp)
   const studentList = Array.from(students.values()).map((s) => ({
     ...s,
-    status: getPresenceStatus(s.lastSeen),
+    status: getPresenceStatus(s.lastActivityAt),
   }));
   const onlineCount = studentList.filter((s) => s.status === 'online').length;
   const violationCount = studentList.filter((s) => s.isViolation).length;
