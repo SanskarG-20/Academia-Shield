@@ -28,6 +28,7 @@ export const BatchDetails: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     async function fetchData() {
@@ -138,7 +139,7 @@ export const BatchDetails: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           <Card
             title={`Students (${batch.students?.length || 0})`}
-            action={<div className="w-48"><Input placeholder="Search student..." className="mb-0 h-9 text-sm" icon={<Search size={14} />} /></div>}
+            action={<div className="w-48"><Input placeholder="Search student..." className="mb-0 h-9 text-sm" icon={<Search size={14} />} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>}
             noPadding
           >
             <div className="overflow-x-auto">
@@ -152,7 +153,14 @@ export const BatchDetails: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {(batch.students || []).map((student) => (
+                  {(batch.students || []).filter((student) => {
+                    const searchLower = searchTerm.toLowerCase();
+                    return (
+                      student.name.toLowerCase().includes(searchLower) ||
+                      student.sapId.toLowerCase().includes(searchLower) ||
+                      student.rollNumber.toLowerCase().includes(searchLower)
+                    );
+                  }).map((student) => (
                     <tr key={student._id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">{student.name}</td>
                       <td className="px-6 py-4 text-slate-500 font-mono text-xs">{student.rollNumber}</td>
