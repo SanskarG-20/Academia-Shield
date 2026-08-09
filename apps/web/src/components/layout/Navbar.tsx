@@ -14,17 +14,8 @@ export const Navbar: React.FC = () => {
       if (profProfileStr) {
           try {
              const prof = JSON.parse(profProfileStr);
-             // Use designation if available, e.g. "Assistant Professor" or "Head of Department"
-             // Map shorter codes to readable names if necessary, but here we assume the Select values
-             const designationMap: Record<string, string> = {
-                 'AP': 'Assistant Professor',
-                 'ASP': 'Associate Professor',
-                 'PROF': 'Professor',
-                 'HOD': 'Head of Department',
-                 'ADMIN': 'System Administrator',
-                 'LAB': 'Lab Instructor'
-             };
-             displayRole = designationMap[prof.designation] || prof.designation || 'Faculty Admin';
+             // Use designation if available
+             displayRole = prof.designation || 'Faculty Admin';
           } catch (e) {
              displayRole = 'Faculty Admin';
           }
@@ -53,7 +44,7 @@ export const Navbar: React.FC = () => {
       <div className="flex items-center gap-4">
         <button className="relative rounded-full p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors">
           <Bell size={20} />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-slate-900"></span>
+
         </button>
         
         <div className="flex items-center gap-3 border-l border-slate-200 dark:border-slate-700 pl-4">
