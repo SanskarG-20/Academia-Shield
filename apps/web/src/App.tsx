@@ -74,7 +74,7 @@ export const App: React.FC = () => {
         
         <Route path="rules" element={<AdminRoute><Rules /></AdminRoute>} />
         <Route path="logs" element={<AdminRoute><Logs /></AdminRoute>} />
-        <Route path="logs/live" element={<AdminRoute><LiveLogs /></AdminRoute>} />
+        <Route path="monitor" element={<AdminRoute><LiveLogs /></AdminRoute>} />
         <Route path="settings" element={<Settings />} />
       </Route>
       

@@ -35,7 +35,7 @@ export const Sidebar: React.FC = () => {
     // Only show Classes/Batches for Admins/Professors
     ...(!isStudent ? [
       { icon: <Users size={20} />, label: 'Classes', path: '/batches' },
-      { icon: <Wifi size={20} />, label: 'Live Monitor', path: '/logs/live' },
+      { icon: <Wifi size={20} />, label: 'Live Monitor', path: '/monitor' },
     ] : []),
     // Only show Rules and Logs for admins
     ...(!isStudent ? [
@@ -62,6 +62,7 @@ export const Sidebar: React.FC = () => {
             <li key={item.path}>
               <NavLink
                 to={item.path}
+                end
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
                    ${isActive 
