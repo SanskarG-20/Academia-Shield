@@ -91,7 +91,7 @@ export const LoginProfessor: React.FC = () => {
                   <input type="checkbox" className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 mr-2" />
                   Remember me
                 </label>
-                <a href="#" className="text-blue-600 hover:text-blue-500 font-medium transition-colors">Forgot Password?</a>
+                <span className="text-slate-400 cursor-not-allowed font-medium transition-colors" title="Contact your institution administrator">Forgot Password?</span>
               </div>
             </div>
           </div>
@@ -112,9 +112,7 @@ export const LoginProfessor: React.FC = () => {
         </form>
 
         <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-700 text-center">
-          <p className="text-xs text-slate-400 dark:text-slate-500 mb-3">
-            Demo: demo@professor.com / password123
-          </p>
+          {/* Demo credentials removed for production */}
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-3">
             Not a professor?
           </p>
