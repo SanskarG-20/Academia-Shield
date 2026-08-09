@@ -125,58 +125,9 @@ export const StudentSession: React.FC = () => {
     ? agentConfig.domains
     : ['No active blocked domains at the moment'];
 
-  // Automatic activity simulation for Working Mode
-  useEffect(() => {
-    let activityInterval: ReturnType<typeof setInterval>;
 
-    if (isWorking && currentSession) {
-      // Simulate activity every 15 seconds
-      activityInterval = setInterval(async () => {
-        try {
-          const isViolation = Math.random() < 0.15; // 15% chance to simulate a violation
-          const activeDomains = agentConfig?.domains || [];
-          
-          const resource = isViolation && activeDomains.length > 0
-            ? activeDomains[Math.floor(Math.random() * activeDomains.length)]
-            : 'vscode.dev';
 
-          await createLog({
-            sessionId: currentSession._id,
-            type: 'EVENT',
-            resource,
-            details: isViolation ? `Agent blocked access to ${resource}` : 'Student working normally',
-            engagementScore: isViolation ? 20 : 85 + Math.floor(Math.random() * 15),
-            isViolation,
-          });
-        } catch (e) {
-          console.warn('Background simulation log failed', e);
-        }
-      }, 15000);
-    }
 
-    return () => {
-      if (activityInterval) clearInterval(activityInterval);
-    };
-  }, [isWorking, currentSession, agentConfig]);
-
-  const simulateActivity = async (resource: string) => {
-    if (!currentSession) return;
-
-    try {
-      await createLog({
-        sessionId: currentSession._id,
-        type: 'EVENT',
-        resource,
-        details: 'Student opened monitored resource',
-        engagementScore: 90,
-        isViolation: monitoredResources.includes(resource),
-      });
-
-      alert(`Activity logged for resource: ${resource}`);
-    } catch (err: any) {
-      alert(err.message || 'Failed to log student activity.');
-    }
-  };
 
   const batchCode =
     currentSession?.batchIds?.[0] &&
@@ -219,22 +170,21 @@ export const StudentSession: React.FC = () => {
               <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">
                 <strong>Session Policy:</strong> Resource access events are recorded for live monitoring.
               </div>
-              <p className="text-sm text-slate-500">Click a resource below to simulate activity logging.</p>
+              <p className="text-sm text-slate-500">The desktop agent is currently enforcing restrictions on the following domains.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {monitoredResources.map((resource: string, index: number) => (
-                  <button
+                  <div
                     key={`${resource}-${index}`}
-                    onClick={() => simulateActivity(resource)}
-                    className="flex items-center gap-3 p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-brand-500 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-all text-left group"
+                    className="flex items-center gap-3 p-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 text-left"
                   >
-                    <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm group-hover:scale-110 transition-transform">
-                      <Globe size={20} className="text-brand-600" />
+                    <div className="p-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
+                      <Globe size={20} className="text-brand-600 opacity-70" />
                     </div>
                     <div>
                       <p className="font-medium text-slate-900 dark:text-white">{resource}</p>
-                      <p className="text-xs text-slate-500">Click to log activity</p>
+                      <p className="text-xs text-slate-500">Monitored Resource</p>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
