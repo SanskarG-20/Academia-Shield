@@ -94,8 +94,28 @@ export const getLogs = async (req: Request | any, res: Response) => {
 // @route   GET /api/logs/:sessionId
 export const getSessionLogs = async (req: Request | any, res: Response) => {
   try {
-    const logs = await Log.find({ sessionId: req.params.sessionId }).sort({ timestamp: -1 });
-    return sendSuccess(res, logs, 'Session logs fetched successfully');
+    const sessionId = req.params.sessionId;
+
+    if (!mongoose.Types.ObjectId.isValid(sessionId)) {
+      return sendError(res, 'Invalid session ID format', 400);
+    }
+
+    if (req.user.role === 'professor') {
+      const session = await Session.findById(sessionId);
+      if (!session) {
+        return sendError(res, 'Session not found', 404);
+      }
+      if (String(session.professorId) !== String(req.user.id)) {
+        return sendError(res, 'Not authorized to view logs for this session', 403);
+      }
+      const logs = await Log.find({ sessionId }).sort({ timestamp: -1 });
+      return sendSuccess(res, logs, 'Session logs fetched successfully');
+    } else if (req.user.role === 'student' || req.user.role === 'student_temp') {
+      const logs = await Log.find({ sessionId, studentId: req.user.id }).sort({ timestamp: -1 });
+      return sendSuccess(res, logs, 'Session logs fetched successfully');
+    }
+
+    return sendError(res, 'Unsupported role for fetching session logs', 403);
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to fetch session logs', 500);
   }
