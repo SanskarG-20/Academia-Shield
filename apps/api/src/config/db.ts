@@ -51,7 +51,12 @@ const normalizeMongoUri = (rawUri: string) => {
 };
 
 const buildMongoUriCandidates = () => {
-  const primary = normalizeMongoUri(process.env.MONGO_URI || DEFAULT_LOCAL_URI);
+  // Support both the repository's original name and the name used by Render.
+  // Prefer MONGO_URI when both are present so existing local deployments keep
+  // their current behaviour.
+  const primary = normalizeMongoUri(
+    process.env.MONGO_URI || process.env.MONGODB_URI || DEFAULT_LOCAL_URI
+  );
   const directRaw = process.env.MONGO_URI_DIRECT?.trim();
   const directFallback = directRaw ? normalizeMongoUri(directRaw) : '';
 

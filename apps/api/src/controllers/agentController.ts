@@ -25,6 +25,33 @@ const ALLOWED_DEVICE_IDS = new Set(
 
 const normalizeDomain = (value: string) => value.trim().toLowerCase();
 
+/**
+ * A device may only publish telemetry to an active session its configured
+ * student has joined and is entitled to access through a mapped batch (or a
+ * public session). This prevents one student's agent appearing in every live
+ * classroom.
+ */
+const findActiveSessionsForStudent = async (
+  studentId: mongoose.Types.ObjectId,
+  joinedBatchIds: mongoose.Types.ObjectId[] = [],
+  projection = '_id title ruleSetId'
+) => {
+  const batchAccessQueries: any[] = [
+    { batchIds: { $exists: false } },
+    { batchIds: { $size: 0 } },
+  ];
+
+  if (joinedBatchIds.length > 0) {
+    batchAccessQueries.push({ batchIds: { $in: joinedBatchIds } });
+  }
+
+  return Session.find({
+    status: 'Active',
+    joinedStudentIds: studentId,
+    $or: batchAccessQueries,
+  }).select(projection);
+};
+
 // @desc    Get active blocking config for desktop agent (NO AUTH)
 // @route   GET /api/agent/config
 export const getAgentConfig = async (req: Request, res: Response) => {
@@ -141,32 +168,29 @@ export const reportAgentActivity = async (req: Request, res: Response) => {
       ? domains.map((d: any) => String(d).trim().toLowerCase()).filter(Boolean)
       : [];
 
-    // Resolve student if sapId was provided.
-    let studentId: mongoose.Types.ObjectId | null = null;
-    let studentName = agentName;
-
-    if (sapId) {
-      const student = await Student.findOne({ sapId: String(sapId).trim() }).select('_id name');
-      if (student) {
-        studentId = student._id as mongoose.Types.ObjectId;
-        studentName = student.name || agentName;
-      }
+    const normalizedSapId = String(sapId || '').trim();
+    if (!normalizedSapId) {
+      return sendError(res, 'A registered student SAP ID is required for agent activity', 400);
     }
 
-    // If no student was resolved, use a deterministic placeholder ObjectId derived from agentId.
-    if (!studentId) {
-      const hex = Buffer.from(agentName.padEnd(12, '0').slice(0, 12)).toString('hex').slice(0, 24);
-      studentId = new mongoose.Types.ObjectId(hex);
+    const student = await Student.findOne({ sapId: normalizedSapId }).select('_id name joinedBatches');
+    if (!student) {
+      return sendError(res, 'No registered student matches this agent SAP ID', 404);
     }
 
-    // Find active sessions.
+    const studentId = student._id as mongoose.Types.ObjectId;
+    const studentName = student.name || agentName;
+
+    // Find only sessions this student has explicitly joined and can access.
     const now = new Date();
-    const activeSessions = await Session.find({
-      status: 'Active',
-    }).select('_id title');
+    const activeSessions = await findActiveSessionsForStudent(
+      studentId,
+      (student.joinedBatches || []) as mongoose.Types.ObjectId[],
+      '_id title'
+    );
 
     if (activeSessions.length === 0) {
-      return sendSuccess(res, { logged: 0 }, 'No active sessions; report acknowledged');
+      return sendSuccess(res, { logged: 0 }, 'No joined active sessions; report acknowledged');
     }
 
     // Determine log type and violation flag based on the action.
@@ -242,16 +266,20 @@ export const reportAgentHeartbeat = async (req: Request, res: Response) => {
       return sendError(res, 'sapId is required for heartbeat', 400);
     }
 
-    const student = await Student.findOne({ sapId: String(sapId).trim() }).select('_id name sapId');
+    const student = await Student.findOne({ sapId: String(sapId).trim() }).select(
+      '_id name sapId joinedBatches'
+    );
     if (!student) {
       return sendSuccess(res, { acknowledged: false }, 'Student not found');
     }
 
-    // Find active sessions
+    // Find only sessions this student has explicitly joined and can access.
     const now = new Date();
-    const activeSessions = await Session.find({
-      status: 'Active',
-    }).select('_id ruleSetId');
+    const activeSessions = await findActiveSessionsForStudent(
+      student._id as mongoose.Types.ObjectId,
+      (student.joinedBatches || []) as mongoose.Types.ObjectId[],
+      '_id ruleSetId'
+    );
 
     if (activeSessions.length === 0) {
       return sendSuccess(res, { acknowledged: true, sessions: 0 }, 'No active sessions');
