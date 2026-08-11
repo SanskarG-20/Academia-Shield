@@ -74,9 +74,9 @@ export const LoginStudent: React.FC = () => {
         </div>
 
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Student Portal</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Student Login & Registration</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">
-            Enter your SAP ID and registered mobile number to login.
+            Enter your SAP ID and mobile number to login or sign up.
           </p>
         </div>
 
@@ -124,7 +124,7 @@ export const LoginStudent: React.FC = () => {
             disabled={isLoading || phoneNumber.length !== 10 || sapId.length !== 12}
             icon={isLoading ? null : <Send size={18} />}
           >
-            {isLoading ? 'Sending Code...' : 'Send Verification Code'}
+            {isLoading ? 'Sending Code...' : 'Login / Register'}
           </Button>
         </form>
 
