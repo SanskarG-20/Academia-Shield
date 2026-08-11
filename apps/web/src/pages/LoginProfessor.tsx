@@ -23,8 +23,12 @@ export const LoginProfessor: React.FC = () => {
 
     setIsLoading(true);
     try {
-      await professorLogin(email, password);
-      navigate('/dashboard');
+      const res = await professorLogin(email, password);
+      if (res.requiresProfileSetup) {
+        navigate('/professor/profile');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err: any) {
       setError(err.message || 'Invalid credentials');
     } finally {
@@ -50,9 +54,9 @@ export const LoginProfessor: React.FC = () => {
         </div>
 
         <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Faculty Access</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Faculty Login & Registration</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">
-            Secure login for Professors & Administrators
+            Enter your credentials. New accounts are created automatically.
           </p>
         </div>
 
@@ -103,7 +107,7 @@ export const LoginProfessor: React.FC = () => {
             disabled={isLoading}
             icon={isLoading ? null : <ArrowRight size={18} />}
           >
-            {isLoading ? 'Signing in...' : 'Sign In'}
+            {isLoading ? 'Authenticating...' : 'Sign In / Register'}
           </Button>
 
           {error && (
