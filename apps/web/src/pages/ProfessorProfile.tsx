@@ -22,10 +22,10 @@ export const ProfessorProfile: React.FC = () => {
       try {
         const profile = await getMe();
         setFormData({
-          fullName: profile.name || '',
-          department: profile.department || '',
+          fullName: profile.name === 'New Faculty' ? '' : (profile.name || ''),
+          department: profile.department === 'Pending' ? '' : (profile.department || ''),
           employeeId: '',
-          designation: profile.designation || '',
+          designation: profile.designation === 'Pending' ? '' : (profile.designation || ''),
           email: profile.email || '',
         });
       } catch (err: any) {
