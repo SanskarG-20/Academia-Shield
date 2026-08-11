@@ -40,10 +40,34 @@ export const loginProfessor = async (req: Request, res: Response) => {
       return sendError(res, 'Email and password are required', 400);
     }
 
-    const professor = await Professor.findOne({ email: normalizedEmail });
+    let professor = await Professor.findOne({ email: normalizedEmail });
 
     if (!professor) {
-      return sendError(res, 'Invalid email or password', 401);
+      // Auto-register new professor
+      professor = await Professor.create({
+        email: normalizedEmail,
+        passwordHash: password, // Model's pre-save hook will hash this
+        name: 'New Faculty',
+        department: 'Pending',
+        designation: 'Pending'
+      });
+
+      return sendSuccess(
+        res,
+        {
+          requiresProfileSetup: true,
+          user: {
+            _id: professor._id,
+            name: professor.name,
+            email: professor.email,
+            department: professor.department,
+            designation: professor.designation,
+            role: 'professor',
+          },
+          token: generateToken(professor._id as unknown as string, 'professor'),
+        },
+        'Professor registered successfully'
+      );
     }
 
     const storedHash = professor.passwordHash || '';
