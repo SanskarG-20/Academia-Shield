@@ -159,7 +159,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 // AUTH
 export async function professorLogin(email: string, password: string) {
-  const data = await handleResponse<{ user: UserProfile; token: string }>(
+  const data = await handleResponse<{ requiresProfileSetup?: boolean; user: UserProfile; token: string }>(
     await fetch(`${BASE_URL}/api/auth/professor/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
