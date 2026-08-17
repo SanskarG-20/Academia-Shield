@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, Search, User, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
+import { Bell, Search, User, PanelLeftOpen, PanelLeftClose, GraduationCap } from 'lucide-react';
 
 interface NavbarProps {
   toggleSidebar?: () => void;
@@ -31,8 +31,8 @@ export const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, isSidebarOpen = t
 
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-6">
-      {/* Left Actions & Search Bar */}
-      <div className="flex w-full max-w-md items-center gap-4">
+      {/* Left Actions & Logo & Search Bar */}
+      <div className="flex w-full max-w-xl items-center gap-4">
         {toggleSidebar && (
           <button
             onClick={toggleSidebar}
@@ -42,7 +42,18 @@ export const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, isSidebarOpen = t
             {isSidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
           </button>
         )}
-        <div className="relative w-full">
+        
+        {/* Logo (Visible only when sidebar is closed) */}
+        {!isSidebarOpen && (
+          <div className="hidden sm:flex items-center gap-2 text-brand-600 dark:text-brand-400 mr-2 transition-all">
+            <GraduationCap size={24} />
+            <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-white">
+              Academia<span className="text-brand-500">Shield</span>
+            </span>
+          </div>
+        )}
+
+        <div className="relative w-full max-w-md">
           <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
             <Search size={18} />
           </span>
