@@ -241,9 +241,13 @@ export const joinSession = async (req: Request | any, res: Response) => {
 
     const io = getIO();
     if (io) {
-      io.emit('student_joined', {
+      // Fetch student name for the socket payload
+      const studentDoc = await Student.findById(req.user.id).select('name sapId');
+      io.to(String(session._id)).emit('student_joined', {
         sessionId: String(session._id),
         studentId: req.user.id,
+        studentName: studentDoc?.name || 'Student',
+        sapId: studentDoc?.sapId || '',
       });
     }
 
