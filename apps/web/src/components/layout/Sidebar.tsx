@@ -12,7 +12,11 @@ import {
   Wifi
 } from 'lucide-react';
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  isOpen?: boolean;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true }) => {
   const navigate = useNavigate();
   const userRole = localStorage.getItem('userRole');
   const isStudent = userRole === 'student';
@@ -46,7 +50,7 @@ export const Sidebar: React.FC = () => {
   ];
 
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 transition-transform">
+    <aside className={`fixed left-0 top-0 z-40 h-screen w-64 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 transition-transform duration-300 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-16 items-center border-b border-slate-200 dark:border-slate-700 px-6">
         <div className="flex items-center gap-2 text-brand-600 dark:text-brand-400">
           <GraduationCap size={28} />
