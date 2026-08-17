@@ -21,11 +21,13 @@ import {
   deleteSession,
   getAgentConfig,
   getBatches,
+  getMe,
   getMyBatches,
   getRules,
   getSessions,
   getLogs,
   joinBatch,
+  reportAgentHeartbeat,
   updateSessionStatus,
 } from '../lib/api';
 import { getSocket } from '../lib/socket';
@@ -38,6 +40,7 @@ export const Sessions: React.FC = () => {
   const [rules, setRules] = useState<RuleSet[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [agentConfig, setAgentConfig] = useState<any>(null);
+  const [studentSapId, setStudentSapId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -128,6 +131,37 @@ export const Sessions: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [isStudent]);
+
+  // ─── Student Presence Heartbeat ─────────────────────────────────────────────
+  // When a student is on this page and has active sessions, send periodic heartbeats
+  // so the professor's Live Command Center shows them as Online.
+  useEffect(() => {
+    if (!isStudent) return;
+
+    // Fetch sapId once for heartbeats
+    getMe().then(profile => {
+      setStudentSapId(profile.sapId || '');
+    }).catch(() => {});
+  }, [isStudent]);
+
+  useEffect(() => {
+    if (!isStudent || !studentSapId) return;
+
+    const hasActiveSessions = sessions.some(
+      s => String(s.status).toLowerCase() === 'active'
+    );
+    if (!hasActiveSessions) return;
+
+    // Send heartbeat immediately
+    reportAgentHeartbeat({ sapId: studentSapId, activeApp: 'Sessions Page', status: 'online' }).catch(() => null);
+
+    // Keep sending every 15 seconds
+    const heartbeatInterval = setInterval(() => {
+      reportAgentHeartbeat({ sapId: studentSapId, activeApp: 'Sessions Page', status: 'online' }).catch(() => null);
+    }, 15_000);
+
+    return () => clearInterval(heartbeatInterval);
+  }, [isStudent, studentSapId, sessions]);
 
   useEffect(() => {
     const timeInterval = setInterval(() => setCurrentTime(new Date()), 5000);

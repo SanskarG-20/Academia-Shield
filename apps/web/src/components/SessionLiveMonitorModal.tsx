@@ -172,8 +172,8 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
         const existing = updated.get(data.studentId);
         updated.set(data.studentId, {
           studentId: data.studentId,
-          studentName: existing?.studentName || 'Student',
-          sapId: existing?.sapId || '',
+          studentName: data.studentName || existing?.studentName || 'Student',
+          sapId: data.sapId || existing?.sapId || '',
           activeApp: 'Joined Session',
           status: 'online',
           engagementScore: 85,
