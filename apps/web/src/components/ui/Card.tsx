@@ -16,10 +16,10 @@ export const Card: React.FC<CardProps> = ({
   noPadding = false
 }) => {
   return (
-    <div className={`bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm hover:shadow-md transition-shadow duration-300 overflow-hidden ${className}`}>
+    <div className={`bg-white dark:bg-dark-card border border-slate-200/60 dark:border-slate-700/50 rounded-2xl shadow-soft hover:shadow-lift transition-all duration-300 overflow-hidden ${className}`}>
       {(title || action) && (
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 backdrop-blur-sm">
-          {title && <h3 className="font-semibold text-slate-800 dark:text-white">{title}</h3>}
+        <div className="px-6 py-4 border-b border-slate-100/80 dark:border-slate-700/40 flex justify-between items-center">
+          {title && <h3 className="font-semibold text-slate-800 dark:text-white tracking-tight">{title}</h3>}
           {action && <div>{action}</div>}
         </div>
       )}

@@ -23,11 +23,11 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       <div 
-        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" 
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-md transition-opacity" 
         onClick={onClose}
       />
-      <div className="relative w-full max-w-lg transform rounded-xl bg-white dark:bg-slate-800 shadow-2xl transition-all flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 px-6 py-4">
+      <div className="relative w-full max-w-lg transform rounded-2xl bg-white dark:bg-dark-card shadow-2xl transition-all flex flex-col max-h-[90vh] animate-scale-in">
+        <div className="flex items-center justify-between border-b border-slate-100/80 dark:border-slate-700/40 px-6 py-4">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
             {title}
           </h3>
@@ -42,7 +42,7 @@ export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, 
           {children}
         </div>
         {footer && (
-          <div className="border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-6 py-4 rounded-b-xl flex justify-end space-x-3">
+          <div className="border-t border-slate-100/80 dark:border-slate-700/40 bg-slate-50/80 dark:bg-slate-800/30 px-6 py-4 rounded-b-2xl flex justify-end space-x-3">
             {footer}
           </div>
         )}

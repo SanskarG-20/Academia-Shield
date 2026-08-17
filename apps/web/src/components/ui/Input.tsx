@@ -22,11 +22,11 @@ export const Input: React.FC<InputProps> = ({ label, error, icon, className = ''
         )}
         <input
           className={`
-            w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 
-            rounded-lg py-2.5 ${icon ? 'pl-10' : 'px-4'} pr-4 text-sm 
+            w-full bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-700/60 
+            rounded-xl py-2.5 ${icon ? 'pl-10' : 'px-4'} pr-4 text-sm 
             text-slate-900 dark:text-white placeholder-slate-400 
-            focus:ring-2 focus:ring-brand-500 focus:border-transparent 
-            transition-colors duration-200
+            focus:ring-2 focus:ring-brand-500/40 focus:border-transparent 
+            transition-all duration-300
             disabled:bg-slate-100 disabled:text-slate-500
             ${error ? 'border-red-500 focus:ring-red-500' : ''}
             ${className}
@@ -55,11 +55,11 @@ export const Select: React.FC<SelectProps> = ({ label, options, className = '', 
       <div className="relative">
         <select
           className={`
-            w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 
-            rounded-lg py-2.5 px-4 text-sm 
+            w-full bg-white dark:bg-dark-card border border-slate-200 dark:border-slate-700/60 
+            rounded-xl py-2.5 px-4 text-sm 
             text-slate-900 dark:text-white
-            focus:ring-2 focus:ring-brand-500 focus:border-transparent 
-            appearance-none transition-colors duration-200
+            focus:ring-2 focus:ring-brand-500/40 focus:border-transparent 
+            appearance-none transition-all duration-300
             ${className}
           `}
           {...props}
