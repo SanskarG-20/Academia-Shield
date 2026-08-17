@@ -46,7 +46,7 @@ export const JoinBatch: React.FC = () => {
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Join a Class Batch</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">
-            Enter the 6-character code provided by your professor to join your class.
+            Enter the code provided by your professor to join your class.
           </p>
         </div>
 
@@ -58,9 +58,8 @@ export const JoinBatch: React.FC = () => {
 
         <form onSubmit={handleJoinBatch} className="space-y-6">
           <Input 
-             placeholder="ENTER CODE (e.g. CSE24X)"
+             placeholder="ENTER CODE (e.g. CE-SY-2024)"
              className="text-center text-2xl tracking-widest font-mono uppercase h-14"
-             maxLength={8}
              value={joinCode}
              onChange={e => setJoinCode(e.target.value.toUpperCase())}
              autoFocus
