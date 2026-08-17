@@ -1,7 +1,12 @@
 import React from 'react';
-import { Bell, Search, User } from 'lucide-react';
+import { Bell, Search, User, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 
-export const Navbar: React.FC = () => {
+interface NavbarProps {
+  toggleSidebar?: () => void;
+  isSidebarOpen?: boolean;
+}
+
+export const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, isSidebarOpen = true }) => {
   const userName = localStorage.getItem('userName') || 'User';
   const role = localStorage.getItem('userRole');
   
@@ -26,8 +31,17 @@ export const Navbar: React.FC = () => {
 
   return (
     <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-6">
-      {/* Search Bar */}
-      <div className="flex w-full max-w-md items-center">
+      {/* Left Actions & Search Bar */}
+      <div className="flex w-full max-w-md items-center gap-4">
+        {toggleSidebar && (
+          <button
+            onClick={toggleSidebar}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 transition-colors"
+            title="Toggle Sidebar"
+          >
+            {isSidebarOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
+          </button>
+        )}
         <div className="relative w-full">
           <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
             <Search size={18} />
