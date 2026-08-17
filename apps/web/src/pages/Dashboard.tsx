@@ -364,15 +364,15 @@ export const Dashboard: React.FC = () => {
                 <AreaChart data={activityData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorStudents" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                  <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                   <Tooltip />
-                  <Area type="monotone" dataKey="students" stroke="#0ea5e9" strokeWidth={3} fillOpacity={1} fill="url(#colorStudents)" />
+                  <Area type="monotone" dataKey="students" stroke="#6366f1" strokeWidth={2.5} fillOpacity={1} fill="url(#colorStudents)" />
                 </AreaChart>
               </ResponsiveContainer>
             </Card>
@@ -381,11 +381,11 @@ export const Dashboard: React.FC = () => {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={sessionData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                   <Tooltip cursor={{ fill: 'transparent' }} />
                   <Legend />
-                  <Bar dataKey="Active" fill="#0ea5e9" radius={[4, 4, 0, 0]} barSize={20} />
-                  <Bar dataKey="Completed" fill="#94a3b8" radius={[4, 4, 0, 0]} barSize={20} />
+                  <Bar dataKey="Active" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={20} />
+                  <Bar dataKey="Completed" fill="#a5b4fc" radius={[6, 6, 0, 0]} barSize={20} />
                 </BarChart>
               </ResponsiveContainer>
             </Card>
