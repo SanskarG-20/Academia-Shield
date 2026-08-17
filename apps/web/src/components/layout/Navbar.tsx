@@ -65,7 +65,7 @@ export const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, isSidebarOpen = t
   const showDropdown = isFocused && searchQuery.trim().length > 0;
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-6">
+    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200/60 dark:border-slate-700/30 bg-white/70 dark:bg-dark-card/70 backdrop-blur-xl px-6">
       {/* Left Actions & Logo & Search Bar */}
       <div className="flex w-full max-w-xl items-center gap-4">
         {toggleSidebar && (
@@ -95,7 +95,7 @@ export const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, isSidebarOpen = t
           <input
             type="text"
             placeholder="Search sessions or classes..."
-            className="w-full rounded-full border-none bg-slate-100 dark:bg-slate-800 py-2 pl-10 pr-4 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-brand-500 placeholder-slate-500"
+            className="w-full rounded-full border-none bg-slate-100/80 dark:bg-slate-800/60 py-2 pl-10 pr-4 text-sm text-slate-900 dark:text-white focus:ring-2 focus:ring-brand-500 placeholder-slate-500"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onFocus={() => setIsFocused(true)}
@@ -103,7 +103,7 @@ export const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, isSidebarOpen = t
 
           {/* Search Dropdown */}
           {showDropdown && (
-            <div className="absolute top-full mt-2 w-full bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden z-50 animate-fade-in max-h-96 overflow-y-auto">
+            <div className="absolute top-full mt-2 w-full bg-white/95 dark:bg-dark-card/95 backdrop-blur-xl rounded-2xl shadow-lift border border-slate-200/60 dark:border-slate-700/40 overflow-hidden z-50 animate-fade-in max-h-96 overflow-y-auto">
               {filteredSessions.length === 0 && filteredBatches.length === 0 ? (
                 <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
                   No results found for "{searchQuery}"
@@ -177,12 +177,12 @@ export const Navbar: React.FC<NavbarProps> = ({ toggleSidebar, isSidebarOpen = t
 
         </button>
         
-        <div className="flex items-center gap-3 border-l border-slate-200 dark:border-slate-700 pl-4">
+        <div className="flex items-center gap-3 border-l border-slate-200/60 dark:border-slate-700/30 pl-4">
           <div className="text-right hidden sm:block">
             <p className="text-sm font-medium text-slate-900 dark:text-white">{userName}</p>
             <p className="text-xs text-slate-500 dark:text-slate-400">{displayRole}</p>
           </div>
-          <div className="h-9 w-9 rounded-full bg-brand-100 dark:bg-brand-900 flex items-center justify-center text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-700">
+          <div className="h-9 w-9 rounded-full bg-brand-100 dark:bg-brand-950/40 flex items-center justify-center text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-700">
             <User size={18} />
           </div>
         </div>
