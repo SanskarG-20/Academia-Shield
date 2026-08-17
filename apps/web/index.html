@@ -7,61 +7,117 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
-              sans: ['Inter', 'sans-serif'],
+              sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
             },
             colors: {
               brand: {
-                50: '#f0f9ff',
-                100: '#e0f2fe',
-                500: '#0ea5e9',
-                600: '#0284c7',
-                700: '#0369a1',
-                900: '#0c4a6e',
+                50:  '#eef2ff',
+                100: '#e0e7ff',
+                200: '#c7d2fe',
+                300: '#a5b4fc',
+                400: '#818cf8',
+                500: '#6366f1',
+                600: '#4f46e5',
+                700: '#4338ca',
+                800: '#3730a3',
+                900: '#312e81',
+                950: '#1e1b4b',
               },
               dark: {
-                bg: '#0f172a',
-                card: '#1e293b',
-                text: '#f8fafc'
+                bg:   '#0c0f1a',
+                card: '#151929',
+                text: '#f1f5f9',
               }
             },
             boxShadow: {
-              'glass': '0 4px 30px rgba(0, 0, 0, 0.1)',
-            }
+              'glass': '0 4px 30px rgba(0, 0, 0, 0.08)',
+              'soft':  '0 1px 3px rgba(0, 0, 0, 0.04), 0 6px 16px rgba(0, 0, 0, 0.04)',
+              'lift':  '0 4px 12px rgba(0, 0, 0, 0.06), 0 20px 40px rgba(0, 0, 0, 0.04)',
+            },
+            animation: {
+              'fade-in':    'fadeIn 0.3s ease-out',
+              'slide-up':   'slideUp 0.35s ease-out',
+              'slide-down': 'slideDown 0.25s ease-out',
+              'scale-in':   'scaleIn 0.2s ease-out',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%':   { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              slideUp: {
+                '0%':   { opacity: '0', transform: 'translateY(8px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              slideDown: {
+                '0%':   { opacity: '0', transform: 'translateY(-4px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              scaleIn: {
+                '0%':   { opacity: '0', transform: 'scale(0.95)' },
+                '100%': { opacity: '1', transform: 'scale(1)' },
+              },
+            },
           }
         }
       }
     </script>
     <style>
       body {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
         -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
       }
+
       /* Custom scrollbar */
       ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
+        width: 5px;
+        height: 5px;
       }
       ::-webkit-scrollbar-track {
         background: transparent;
       }
       ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 3px;
+        background: #d1d5db;
+        border-radius: 100px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #9ca3af;
       }
       .dark ::-webkit-scrollbar-thumb {
-        background: #475569;
+        background: #374151;
+      }
+      .dark ::-webkit-scrollbar-thumb:hover {
+        background: #4b5563;
+      }
+
+      /* Smooth selection color */
+      ::selection {
+        background: rgba(99, 102, 241, 0.2);
+        color: inherit;
+      }
+      .dark ::selection {
+        background: rgba(129, 140, 248, 0.3);
+      }
+
+      /* Focus visible outline for accessibility */
+      *:focus-visible {
+        outline: 2px solid rgba(99, 102, 241, 0.5);
+        outline-offset: 2px;
+        border-radius: 4px;
       }
     </style>
   <script type="module" src="/src/main.tsx"></script>
 </head>
-  <body class="bg-slate-50 text-slate-900 dark:bg-dark-bg dark:text-dark-text transition-colors duration-300">
+  <body class="bg-slate-50 text-slate-800 dark:bg-dark-bg dark:text-dark-text transition-colors duration-300">
     <div id="root"></div>
   </body>
 </html>
