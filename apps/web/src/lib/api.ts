@@ -466,3 +466,17 @@ export async function getAgentConfig() {
   const config = await handleResponse<any>(await fetch(`${BASE_URL}/api/agent/config`));
   return normalizeAgentConfig(config);
 }
+
+export async function reportAgentHeartbeat(payload: {
+  sapId: string;
+  activeApp: string;
+  status: 'online' | 'idle' | 'offline';
+}) {
+  return handleResponse<any>(
+    await fetch(`${BASE_URL}/api/agent/heartbeat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  );
+}
