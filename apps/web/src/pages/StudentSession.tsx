@@ -16,10 +16,11 @@ import {
   Loader2 as Spinner,
 } from 'lucide-react';
 import { Batch, Session, SessionStatus } from '../types';
-import { createLog, getAgentConfig, getMe, getMyBatches, getSessions, joinSession } from '../lib/api';
+import { createLog, getAgentConfig, getMe, getMyBatches, getSessions, joinSession, reportAgentHeartbeat } from '../lib/api';
 
 export const StudentSession: React.FC = () => {
   const [userName, setUserName] = useState('Student');
+  const [userSapId, setUserSapId] = useState('');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [myBatches, setMyBatches] = useState<Batch[]>([]);
   const [agentConfig, setAgentConfig] = useState<any>(null);
@@ -42,6 +43,7 @@ export const StudentSession: React.FC = () => {
       ]);
 
       setUserName(profile.name || 'Student');
+      setUserSapId(profile.sapId || '');
       setSessions(sessionsData);
       setMyBatches(myBatchesData);
       setAgentConfig(agentData);
@@ -64,6 +66,20 @@ export const StudentSession: React.FC = () => {
     const interval = setInterval(() => loadData(false), 15000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!isWorking || !userSapId) return;
+
+    // Send heartbeat immediately on working status change
+    reportAgentHeartbeat({ sapId: userSapId, activeApp: 'Student Console', status: 'online' }).catch(() => null);
+
+    // Continue sending heartbeats every 15 seconds to keep presence 'online'
+    const interval = setInterval(() => {
+      reportAgentHeartbeat({ sapId: userSapId, activeApp: 'Student Console', status: 'online' }).catch(() => null);
+    }, 15000);
+
+    return () => clearInterval(interval);
+  }, [isWorking, userSapId]);
 
   const getStatusColor = (status: SessionStatus | string) => {
     switch (String(status).toLowerCase()) {
