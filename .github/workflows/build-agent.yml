@@ -43,8 +43,6 @@ jobs:
             --hidden-import enforcement.hosts ^
             --hidden-import enforcement.dns ^
             --hidden-import enforcement.base ^
-            --hidden-import service ^
-            --hidden-import service.windows_service ^
             --hidden-import config ^
             --hidden-import env_loader ^
             --hidden-import logger ^
