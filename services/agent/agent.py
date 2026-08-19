@@ -1,5 +1,5 @@
 """
-Academia Shield Agent — Main Orchestrator
+Academia Shield Agent — Main Orchestrator (v1.0.0)
 
 This is the entry point for the agent. It selects the appropriate
 enforcement engine (Hosts or DNS) based on configuration, polls the
