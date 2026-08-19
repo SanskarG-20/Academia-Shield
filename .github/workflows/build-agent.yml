@@ -1,0 +1,93 @@
+name: Build Agent (.exe)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/agent/**'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write  # Required to create/update releases
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/agent/requirements.txt
+          pip install pyinstaller
+
+      - name: Build AcademiaShield.exe
+        working-directory: services/agent
+        run: |
+          pyinstaller ^
+            --onefile ^
+            --console ^
+            --name "AcademiaShield" ^
+            --add-data ".env.production;." ^
+            --hidden-import comms ^
+            --hidden-import comms.http_client ^
+            --hidden-import comms.socket_client ^
+            --hidden-import enforcement ^
+            --hidden-import enforcement.hosts ^
+            --hidden-import enforcement.dns ^
+            --hidden-import enforcement.base ^
+            --hidden-import service ^
+            --hidden-import service.windows_service ^
+            --hidden-import config ^
+            --hidden-import env_loader ^
+            --hidden-import logger ^
+            --hidden-import socketio ^
+            agent.py
+        shell: cmd
+
+      - name: Verify build output
+        run: |
+          if (Test-Path "services/agent/dist/AcademiaShield.exe") {
+            $size = (Get-Item "services/agent/dist/AcademiaShield.exe").Length / 1MB
+            Write-Host "✅ Build successful! Size: $([math]::Round($size, 2)) MB"
+          } else {
+            Write-Error "❌ Build failed — AcademiaShield.exe not found"
+            exit 1
+          }
+
+      - name: Create/Update Nightly Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: "🛡️ AcademiaShield Agent (Nightly)"
+          body: |
+            ## Automated Build
+
+            **Commit:** `${{ github.sha }}`
+            **Built at:** ${{ github.event.head_commit.timestamp }}
+
+            ### Download
+            Download `AcademiaShield.exe` below, then run it in an **Administrator** terminal:
+            ```
+            AcademiaShield.exe
+            ```
+            Set your SAP ID before running:
+            ```
+            set STUDENT_SAP_ID=YOUR_SAP_ID
+            AcademiaShield.exe
+            ```
+
+            ### One-Line Download (PowerShell)
+            ```powershell
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/nightly/AcademiaShield.exe" -OutFile "AcademiaShield.exe"
+            ```
+          prerelease: true
+          make_latest: true
+          files: services/agent/dist/AcademiaShield.exe
