@@ -43,6 +43,8 @@ import logging
 import ctypes
 import platform
 import threading
+import subprocess
+import shutil
 
 # Ensure the agent directory is on sys.path so relative imports work
 # regardless of the working directory.
@@ -321,5 +323,257 @@ def main():
         LOGGER.info("Agent stopped.")
 
 
+# ---------------------------------------------------------------------------
+# Auto-startup: Install / Uninstall / Status
+# ---------------------------------------------------------------------------
+INSTALL_DIR = os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"), "AcademiaShield")
+INSTALL_EXE = os.path.join(INSTALL_DIR, "AcademiaShield.exe")
+INSTALL_ENV = os.path.join(INSTALL_DIR, ".env.production")
+TASK_NAME = "AcademiaShieldAgent"
+
+
+def _get_current_exe():
+    """Return the path to the currently running .exe (or .py during dev)."""
+    if getattr(sys, 'frozen', False):
+        # Running as a PyInstaller bundle
+        return sys.executable
+    else:
+        # Running as a Python script (dev mode)
+        return os.path.abspath(__file__)
+
+
+def _is_admin():
+    """Check admin privileges (needed for install)."""
+    try:
+        if platform.system() == "Windows":
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        return os.geteuid() == 0
+    except Exception:
+        return False
+
+
+def do_install():
+    """
+    Install the agent for auto-startup:
+    1. Copy the .exe to C:\\ProgramData\\AcademiaShield\\
+    2. Write a .env.production with the student's SAP ID
+    3. Create a Windows Scheduled Task to run at logon with admin rights
+    """
+    if platform.system() != "Windows":
+        print("[ERROR] Auto-install is only supported on Windows.")
+        return 1
+
+    if not _is_admin():
+        print("[ERROR] Installation requires Administrator privileges.")
+        print("        Right-click your terminal and select 'Run as administrator'.")
+        return 1
+
+    print()
+    print("=" * 55)
+    print("  Academia Shield Agent — Installer")
+    print("=" * 55)
+    print()
+
+    # 1. Prompt for SAP ID
+    sap_id = input("  Enter your Student SAP ID: ").strip()
+    if not sap_id:
+        print("[ERROR] SAP ID is required.")
+        return 1
+
+    # 2. Create install directory
+    os.makedirs(INSTALL_DIR, exist_ok=True)
+
+    # 3. Copy the exe
+    current_exe = _get_current_exe()
+    if current_exe.endswith('.py'):
+        print("[WARNING] Running from source — skipping .exe copy.")
+        print("          Build with PyInstaller first, then run the .exe with --install.")
+    else:
+        if os.path.normpath(current_exe) != os.path.normpath(INSTALL_EXE):
+            print(f"  [1/3] Copying agent to {INSTALL_DIR}...")
+            shutil.copy2(current_exe, INSTALL_EXE)
+        else:
+            print("  [1/3] Agent already in install directory.")
+
+    # 4. Write .env.production
+    print("  [2/3] Saving configuration...")
+    env_content = f"""# Academia Shield Agent — Auto-generated configuration
+TEST_MODE=false
+API_URL=https://academia-shield-api.onrender.com
+POLL_INTERVAL=30
+REQUEST_TIMEOUT=10
+RETRY_ATTEMPTS=5
+ENFORCEMENT_MODE=HOSTS
+SOCKET_ENABLED=false
+STUDENT_SAP_ID={sap_id}
+"""
+    with open(INSTALL_ENV, "w") as f:
+        f.write(env_content)
+
+    # 5. Create Scheduled Task
+    print("  [3/3] Registering auto-start task...")
+
+    # Remove existing task if present
+    subprocess.run(
+        ["schtasks", "/delete", "/tn", TASK_NAME, "/f"],
+        capture_output=True, check=False,
+    )
+
+    # Create new task: run at logon, with highest privileges, no time limit
+    exe_path = INSTALL_EXE if not current_exe.endswith('.py') else current_exe
+    result = subprocess.run(
+        [
+            "schtasks", "/create",
+            "/tn", TASK_NAME,
+            "/tr", f'"{exe_path}"',
+            "/sc", "ONLOGON",
+            "/rl", "HIGHEST",         # Run with admin privileges
+            "/f",                      # Force overwrite
+        ],
+        capture_output=True, text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"[ERROR] Failed to create scheduled task: {result.stderr.strip()}")
+        return 1
+
+    # Also start the agent now
+    print()
+    print("=" * 55)
+    print("  ✅ Installation Complete!")
+    print("=" * 55)
+    print()
+    print(f"  SAP ID:     {sap_id}")
+    print(f"  Install:    {INSTALL_DIR}")
+    print(f"  Auto-start: Enabled (runs at logon as Administrator)")
+    print()
+    print("  The agent will now start automatically every time you")
+    print("  log into Windows. No further action is needed.")
+    print()
+    print("  To uninstall:  AcademiaShield.exe --uninstall")
+    print("  To check:      AcademiaShield.exe --status")
+    print()
+
+    # Start the agent immediately
+    print("  Starting agent now...")
+    print()
+    return None  # Signal to continue into main()
+
+
+def do_uninstall():
+    """Remove the scheduled task and optionally the install directory."""
+    if platform.system() != "Windows":
+        print("[ERROR] Auto-uninstall is only supported on Windows.")
+        return 1
+
+    if not _is_admin():
+        print("[ERROR] Uninstallation requires Administrator privileges.")
+        return 1
+
+    print()
+    print("  Academia Shield Agent — Uninstaller")
+    print()
+
+    # 1. Remove scheduled task
+    result = subprocess.run(
+        ["schtasks", "/delete", "/tn", TASK_NAME, "/f"],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print("  [✓] Auto-start task removed.")
+    else:
+        print("  [—] No auto-start task found (already removed).")
+
+    # 2. Remove install directory
+    if os.path.exists(INSTALL_DIR):
+        try:
+            # Don't delete the exe if we're running from it
+            current_exe = _get_current_exe()
+            if os.path.normpath(current_exe) == os.path.normpath(INSTALL_EXE):
+                # We're running from install dir — just remove env and task
+                if os.path.exists(INSTALL_ENV):
+                    os.remove(INSTALL_ENV)
+                print("  [✓] Configuration removed.")
+                print(f"  [!] Delete {INSTALL_DIR} manually (agent is running from there).")
+            else:
+                shutil.rmtree(INSTALL_DIR, ignore_errors=True)
+                print(f"  [✓] Removed {INSTALL_DIR}")
+        except Exception as e:
+            print(f"  [!] Could not fully remove install dir: {e}")
+    else:
+        print("  [—] Install directory not found.")
+
+    print()
+    print("  ✅ Uninstallation complete. Agent will no longer auto-start.")
+    print()
+    return 0
+
+
+def do_status():
+    """Show installation status."""
+    print()
+    print("  Academia Shield Agent — Status")
+    print()
+
+    # Check install directory
+    if os.path.exists(INSTALL_EXE):
+        print(f"  Install:    {INSTALL_EXE} ✓")
+    else:
+        print(f"  Install:    Not installed")
+
+    # Check env file
+    if os.path.exists(INSTALL_ENV):
+        with open(INSTALL_ENV) as f:
+            for line in f:
+                if line.strip().startswith("STUDENT_SAP_ID="):
+                    sap = line.strip().split("=", 1)[1]
+                    print(f"  SAP ID:     {sap or '(not set)'}")
+                    break
+    else:
+        print("  SAP ID:     (no config found)")
+
+    # Check scheduled task
+    result = subprocess.run(
+        ["schtasks", "/query", "/tn", TASK_NAME],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print("  Auto-start: Enabled ✓")
+    else:
+        print("  Auto-start: Disabled ✗")
+
+    print()
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    # Handle CLI commands before entering the main agent loop
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1].lower().strip("-/")
+        if cmd == "install":
+            result = do_install()
+            if result is not None:
+                sys.exit(result)
+            # result is None → continue into main()
+            main()
+        elif cmd == "uninstall":
+            sys.exit(do_uninstall())
+        elif cmd == "status":
+            sys.exit(do_status())
+        elif cmd in ("help", "h", "?"):
+            print()
+            print("  Academia Shield Agent")
+            print()
+            print("  Usage:")
+            print("    AcademiaShield.exe              Run the agent")
+            print("    AcademiaShield.exe --install     Install and auto-start on boot")
+            print("    AcademiaShield.exe --uninstall   Remove auto-start")
+            print("    AcademiaShield.exe --status      Show installation status")
+            print()
+            sys.exit(0)
+        else:
+            print(f"  Unknown command: {sys.argv[1]}")
+            print("  Use --help for usage information.")
+            sys.exit(1)
+    else:
+        main()
