@@ -1,9 +1,8 @@
 <div align="center">
-  <h1>🛡️ Academia Shield</h1>
+  <h1>Academia Shield</h1>
   <p><strong>Enterprise-grade academic integrity and classroom session management platform.</strong></p>
   
   [![Build Status](https://github.com/SanskarG-20/Academia-Shield/actions/workflows/build-agent.yml/badge.svg)](https://github.com/SanskarG-20/Academia-Shield/actions)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
   [Live Web App](https://academia-shield.vercel.app/) • 
   [Download Agent](https://github.com/SanskarG-20/Academia-Shield/releases)
@@ -101,7 +100,3 @@ Invoke-WebRequest -Uri "https://github.com/SanskarG-20/Academia-Shield/releases/
 - **Backend:** Node.js, Express, Mongoose, Socket.IO
 - **Agent:** Python 3.11, PyInstaller
 - **Infrastructure:** Vercel (Web), Render (API), MongoDB Atlas (DB), GitHub Actions (CI/CD)
-
-## 📄 License
-
-This project is licensed under the MIT License.
