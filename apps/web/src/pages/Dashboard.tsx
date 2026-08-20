@@ -35,6 +35,7 @@ import {
   getMyBatches,
   getSessions,
   reportAgentHeartbeat,
+  pairLocalAgent,
 } from '../lib/api';
 
 const StatCard = ({ title, value, trend, icon, color }: any) => (
@@ -88,6 +89,7 @@ export const Dashboard: React.FC = () => {
       setUserName(profile.name || (isStudent ? 'Student' : 'Professor'));
       if (isStudent && profile.sapId) {
         setUserSapId(profile.sapId);
+        pairLocalAgent(profile.sapId);
       }
       setSessions(sessionsData);
       setLogs(logsData);

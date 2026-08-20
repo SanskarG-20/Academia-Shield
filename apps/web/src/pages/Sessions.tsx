@@ -28,6 +28,7 @@ import {
   getLogs,
   joinBatch,
   reportAgentHeartbeat,
+  pairLocalAgent,
   updateSessionStatus,
 } from '../lib/api';
 import { getSocket } from '../lib/socket';
@@ -141,6 +142,7 @@ export const Sessions: React.FC = () => {
     // Fetch sapId once for heartbeats
     getMe().then(profile => {
       setStudentSapId(profile.sapId || '');
+      if (profile.sapId) pairLocalAgent(profile.sapId);
     }).catch(() => {});
   }, [isStudent]);
 

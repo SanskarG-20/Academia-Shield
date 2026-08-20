@@ -41,32 +41,95 @@ if os.path.exists(env_file):
 import time
 import logging
 import ctypes
-import platform
+import sys
+import argparse
+import traceback
+import signal
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import config
 import threading
+import platform
 import subprocess
 import shutil
 
 # Ensure the agent directory is on sys.path so relative imports work
 # regardless of the working directory.
-if AGENT_DIR not in sys.path:
-    sys.path.insert(0, AGENT_DIR)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
 
+import env_loader
+env_loader.load_env()
+
+# Now we can safely import our local modules
 from config import (
     ENFORCEMENT_MODE,
     POLL_INTERVAL,
     SERVER_IP,
     SERVER_PORT,
     AGENT_ID,
-    STUDENT_SAP_ID,
     TEST_MODE,
     SOCKET_ENABLED,
     SOCKET_URL,
 )
 from logger import setup_logger
-from comms.http_client import fetch_config_with_retry, report_to_server, send_heartbeat
-from enforcement.hosts import HostsEnforcementEngine, normalize_domain_list
+from comms import http_client, socket_client
+from enforcement import get_engine, normalize_domain_list
 
 LOGGER = setup_logger()
+
+# ---------------------------------------------------------------------------
+# Local Identity Server (Allows Web App to set SAP ID seamlessly)
+# ---------------------------------------------------------------------------
+class LocalAgentHandler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+
+    def do_POST(self):
+        if self.path == '/identify':
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                post_data = self.rfile.read(content_length)
+                try:
+                    data = json.loads(post_data.decode('utf-8'))
+                    sap_id = data.get('sapId')
+                    if sap_id:
+                        config.STUDENT_SAP_ID = str(sap_id).strip()
+                        LOGGER.info(f"Agent successfully paired with SAP ID: {config.STUDENT_SAP_ID}")
+                        
+                        self.send_response(200)
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.send_header('Content-Type', 'application/json')
+                        self.end_headers()
+                        self.wfile.write(b'{"status":"ok"}')
+                        return
+                except Exception as e:
+                    LOGGER.error(f"Error parsing identify payload: {e}")
+        
+        self.send_response(400)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(b'{"error":"invalid request"}')
+
+    def log_message(self, format, *args):
+        pass # Suppress HTTP access logs
+
+def start_local_server():
+    try:
+        server = HTTPServer(('127.0.0.1', 49494), LocalAgentHandler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        LOGGER.info("Local identity server listening on 127.0.0.1:49494")
+    except Exception as e:
+        LOGGER.error(f"Failed to start local identity server: {e}")
+
+# ---------------------------------------------------------------------------
+# Globals & State
+# ---------------------------------------------------------------------------
 SYNC_EVENT = threading.Event()
 RUNNING = True
 LAST_APPLIED_DOMAINS = None
@@ -236,6 +299,7 @@ def sync_once(engine):
 # Main loop
 # ---------------------------------------------------------------------------
 def main():
+    start_local_server()
     LOGGER.info("=" * 50)
     LOGGER.info("ACADEMIA SHIELD AGENT")
     LOGGER.info("=" * 50)
@@ -245,7 +309,7 @@ def main():
     LOGGER.info("Test mode:        %s", TEST_MODE)
     LOGGER.info("Poll interval:    %ss", POLL_INTERVAL)
     LOGGER.info("Socket.IO:        %s", "enabled" if SOCKET_ENABLED else "disabled")
-    LOGGER.info("Student SAP ID:   %s", STUDENT_SAP_ID or "(not set — logs will use agent hostname)")
+    LOGGER.info("Student SAP ID:   %s", config.STUDENT_SAP_ID or "(not set - logs will use agent hostname)")
 
     # Admin check
     if is_admin():
@@ -374,13 +438,7 @@ def do_install():
     print("=" * 55)
     print()
 
-    # 1. Prompt for SAP ID
-    sap_id = input("  Enter your Student SAP ID: ").strip()
-    if not sap_id:
-        print("[ERROR] SAP ID is required.")
-        return 1
-
-    # 2. Create install directory
+    # SAP ID will be provided dynamically by the web app    # 2. Create install directory
     os.makedirs(INSTALL_DIR, exist_ok=True)
 
     # 3. Copy the exe
@@ -405,7 +463,7 @@ REQUEST_TIMEOUT=10
 RETRY_ATTEMPTS=5
 ENFORCEMENT_MODE=HOSTS
 SOCKET_ENABLED=false
-STUDENT_SAP_ID={sap_id}
+STUDENT_SAP_ID=
 """
     with open(INSTALL_ENV, "w") as f:
         f.write(env_content)
@@ -443,7 +501,7 @@ STUDENT_SAP_ID={sap_id}
     print("  ✅ Installation Complete!")
     print("=" * 55)
     print()
-    print(f"  SAP ID:     {sap_id}")
+    print(f"  SAP ID:     (Auto-detected via Web App)")
     print(f"  Install:    {INSTALL_DIR}")
     print(f"  Auto-start: Enabled (runs at logon as Administrator)")
     print()

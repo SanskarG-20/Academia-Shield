@@ -480,3 +480,20 @@ export async function reportAgentHeartbeat(payload: {
     })
   );
 }
+
+// LOCAL AGENT
+export async function pairLocalAgent(sapId: string) {
+  try {
+    const res = await fetch('http://127.0.0.1:49494/identify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sapId }),
+    });
+    return await res.json();
+  } catch (error) {
+    // Silently ignore if local agent is not running
+    console.debug("Local desktop agent not running or unreachable.");
+    return null;
+  }
+}
+

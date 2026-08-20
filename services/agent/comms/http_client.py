@@ -12,12 +12,12 @@ import logging
 import urllib.parse
 import urllib.request
 import urllib.error
+import config
 
 from config import (
     SERVER_IP,
     SERVER_PORT,
     AGENT_ID,
-    STUDENT_SAP_ID,
     REQUEST_TIMEOUT,
     RETRY_ATTEMPTS,
     RETRY_BACKOFF_SECONDS,
@@ -132,7 +132,7 @@ def report_to_server(action, domains=None):
         protocol = "https" if USE_HTTPS else "http"
         payload = json.dumps({
             "agentId": AGENT_ID,
-            "sapId": STUDENT_SAP_ID or None,
+            "sapId": config.STUDENT_SAP_ID or None,
             "action": action,
             "domains": list(domains or []),
         }).encode("utf-8")
@@ -160,13 +160,13 @@ def report_to_server(action, domains=None):
 # ---------------------------------------------------------------------------
 def send_heartbeat(active_app="Unknown", status="online"):
     """POST periodic heartbeat telemetry to the backend (best-effort)."""
-    if not STUDENT_SAP_ID:
+    if not config.STUDENT_SAP_ID:
         return  # Can't send heartbeat without SAP ID
 
     try:
         protocol = "https" if USE_HTTPS else "http"
         payload = json.dumps({
-            "sapId": STUDENT_SAP_ID,
+            "sapId": config.STUDENT_SAP_ID,
             "activeApp": active_app,
             "status": status,
         }).encode("utf-8")
