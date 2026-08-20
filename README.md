@@ -19,6 +19,7 @@
 
 - **Real-Time Command Center:** Monitor student presence (Online/Idle/Offline), active applications, and compliance via WebSockets.
 - **Zero-Touch Desktop Agent:** Standalone Windows `.exe` that installs as a background service and auto-starts on boot. No Python required on student machines.
+- **Seamless Lab Pairing:** Perfect for shared computer labs. The background agent dynamically pairs with the current student the exact moment they log into the Web App.
 - **Dynamic Policy Enforcement:** Modifies OS network settings (hosts/DNS) automatically when a session starts, and restores them when it ends.
 - **AI-Powered Analytics:** Uses Google Gemini to analyze session logs, generate summaries, and flag anomalous behavior.
 - **Secure Authentication:** JWT-based sessions with Email OTP verification for students.
@@ -38,6 +39,7 @@ flowchart LR
   DB[(MongoDB)]
   
   WEB <-->|REST + WebSocket| API & SOCKET
+  WEB -->|Local Identity Ping :49494| AGENT
   AGENT -->|Polls Config| API
   AGENT -->|Telemetry & Heartbeats| API
   API --> DB
@@ -78,13 +80,15 @@ npm run dev
 
 The Python agent is automatically compiled into a standalone Windows executable (`AcademiaShield.exe`) via GitHub Actions CI/CD on every push.
 
-### Student Installation
-Run the following in an **Administrator** PowerShell window to download and install the agent as a persistent background service:
+### Shared Lab Installation
+Run the following in an **Administrator** PowerShell window on each lab PC to download and install the agent as a persistent background service:
 
 ```powershell
 Invoke-WebRequest -Uri "https://github.com/SanskarG-20/Academia-Shield/releases/download/nightly/AcademiaShield.exe" -OutFile "AcademiaShield.exe"
 .\AcademiaShield.exe --install
 ```
+
+*Note: You do not need to provide an SAP ID during installation. The agent will automatically detect who is sitting at the PC the moment they log into the Academia Shield website.*
 
 ### Agent CLI Commands
 - `AcademiaShield.exe --install` : Install as a Windows scheduled task (auto-starts on boot).
