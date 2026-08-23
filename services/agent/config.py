@@ -53,6 +53,21 @@ STUDENT_SAP_ID = os.getenv("STUDENT_SAP_ID", "").strip()
 # the server accepts while it is running with enforcement off.
 AGENT_SHARED_SECRET = os.getenv("AGENT_SHARED_SECRET", "").strip()
 
+# Web origins allowed to pair this machine via the local identity server on
+# 127.0.0.1:49494. A request carrying an Origin outside this list is refused, so a
+# hostile page a student happens to visit cannot re-point the agent at another SAP ID.
+# Requests with no Origin at all (curl, the demo script) still work — only a browser
+# sends the header, and a browser cannot suppress it on a cross-origin POST.
+PAIRING_ALLOWED_ORIGINS = [
+    origin.strip().rstrip("/").lower()
+    for origin in os.getenv(
+        "PAIRING_ALLOWED_ORIGINS",
+        "https://academia-shield.vercel.app,http://localhost:3000,http://localhost:5173,"
+        "http://127.0.0.1:3000,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+
 # ---------------------------------------------------------------------------
 # Enforcement Mode
 # ---------------------------------------------------------------------------

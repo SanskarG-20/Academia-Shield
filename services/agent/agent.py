@@ -9,14 +9,16 @@ Usage:
     python agent.py
 
 Environment Variables:
-    API_URL            — Full API URL (e.g., https://academia-shield-api.onrender.com)
-    TEST_MODE          — "true" for local development
-    SERVER_IP          — Backend API IP address (fallback if API_URL not set)
-    SERVER_PORT        — Backend API port (default 5000)
-    STUDENT_SAP_ID     — Student SAP ID for log attribution
-    POLL_INTERVAL      — Polling interval in seconds (5-10, default 8)
-    ENFORCEMENT_MODE   — "HOSTS" (default) or "DNS"
-    SOCKET_ENABLED     — "true" to enable Socket.IO push (requires python-socketio)
+    API_URL                 — Full API URL (e.g., https://academia-shield-api.onrender.com)
+    TEST_MODE               — "true" for local development
+    SERVER_IP               — Backend API IP address (fallback if API_URL not set)
+    SERVER_PORT             — Backend API port (default 5000)
+    STUDENT_SAP_ID          — Student SAP ID for log attribution
+    AGENT_SHARED_SECRET     — Sent as X-Agent-Secret on /api/agent/* calls
+    PAIRING_ALLOWED_ORIGINS — Comma-separated web origins allowed to pair this machine
+    POLL_INTERVAL           — Polling interval in seconds (5-10, default 8)
+    ENFORCEMENT_MODE        — "HOSTS" (default) or "DNS"
+    SOCKET_ENABLED          — "true" to enable Socket.IO push (requires python-socketio)
 
 See config.py for the full list of configuration options.
 """
@@ -46,6 +48,7 @@ import argparse
 import traceback
 import signal
 import json
+import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import config
 import threading
@@ -82,39 +85,87 @@ LOGGER = setup_logger()
 # ---------------------------------------------------------------------------
 # Local Identity Server (Allows Web App to set SAP ID seamlessly)
 # ---------------------------------------------------------------------------
+SAP_ID_PATTERN = re.compile(r"^\d{12}$")
+
+
 class LocalAgentHandler(BaseHTTPRequestHandler):
+    """
+    Accepts the pairing handshake from the web app on 127.0.0.1:49494.
+
+    This endpoint decides which student every subsequent report and heartbeat is
+    attributed to, so it is origin-checked rather than left open. CORS headers alone
+    would not be enough: a simple cross-origin POST still reaches the handler even
+    though the browser hides the response, so the Origin is validated before any
+    state changes.
+    """
+
+    def _resolve_origin(self):
+        """Return (origin_header, is_allowed) for the current request."""
+        origin = (self.headers.get('Origin') or '').strip().rstrip('/')
+        if not origin:
+            # Not a browser. The socket is bound to loopback, so the caller is
+            # already a local process with at least this much privilege.
+            return '', True
+        return origin, origin.lower() in config.PAIRING_ALLOWED_ORIGINS
+
+    def _respond(self, status, body=b'', origin=''):
+        self.send_response(status)
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        origin, allowed = self._resolve_origin()
+        if not allowed:
+            LOGGER.warning(f"Rejected pairing preflight from disallowed origin: {origin}")
+            self._respond(403, b'{"error":"origin not allowed"}')
+            return
+
+        self.send_response(204)
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Max-Age', '600')
+        self.send_header('Content-Length', '0')
         self.end_headers()
 
     def do_POST(self):
-        if self.path == '/identify':
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length > 0:
-                post_data = self.rfile.read(content_length)
-                try:
-                    data = json.loads(post_data.decode('utf-8'))
-                    sap_id = data.get('sapId')
-                    if sap_id:
-                        config.STUDENT_SAP_ID = str(sap_id).strip()
-                        LOGGER.info(f"Agent successfully paired with SAP ID: {config.STUDENT_SAP_ID}")
-                        
-                        self.send_response(200)
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(b'{"status":"ok"}')
-                        return
-                except Exception as e:
-                    LOGGER.error(f"Error parsing identify payload: {e}")
-        
-        self.send_response(400)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        self.wfile.write(b'{"error":"invalid request"}')
+        origin, allowed = self._resolve_origin()
+        if not allowed:
+            LOGGER.warning(f"Rejected pairing request from disallowed origin: {origin}")
+            self._respond(403, b'{"error":"origin not allowed"}')
+            return
+
+        if self.path != '/identify':
+            self._respond(404, b'{"error":"not found"}', origin)
+            return
+
+        try:
+            content_length = int(self.headers.get('Content-Length', 0) or 0)
+        except ValueError:
+            content_length = 0
+
+        if 0 < content_length <= 4096:
+            post_data = self.rfile.read(content_length)
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                sap_id = str(data.get('sapId') or '').strip()
+                if SAP_ID_PATTERN.match(sap_id):
+                    config.STUDENT_SAP_ID = sap_id
+                    LOGGER.info(f"Agent successfully paired with SAP ID: {sap_id}")
+                    self._respond(200, b'{"status":"ok"}', origin)
+                    return
+            except Exception as e:
+                LOGGER.error(f"Error parsing identify payload: {e}")
+
+        self._respond(400, b'{"error":"invalid request"}', origin)
 
     def log_message(self, format, *args):
         pass # Suppress HTTP access logs
