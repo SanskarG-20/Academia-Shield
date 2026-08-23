@@ -10,6 +10,8 @@ import { sendError, sendSuccess } from '../utils/apiResponse';
 const SAP_ID_REGEX = /^\d{12}$/;
 const OTP_REGEX = /^\d{6}$/;
 
+const isProduction = () => process.env.NODE_ENV === 'production';
+
 /**
  * Email domains permitted to self-register as faculty on first login.
  * An empty list disables professor self-registration entirely — accounts must
@@ -33,6 +35,19 @@ const normalizeSapId = (value: unknown) =>
 const resolveMockOtp = () => {
   const configuredOtp = (process.env.MOCK_STUDENT_OTP || '123456').trim();
   return OTP_REGEX.test(configuredOtp) ? configuredOtp : '123456';
+};
+
+/**
+ * Mock OTP mode returns a fixed, well-known code and is only ever safe off
+ * production. Requiring an explicit ALLOW_INSECURE_OTP opt-in means a missing
+ * STUDENT_OTP_MODE on the deployed API can no longer silently downgrade student
+ * auth to a hardcoded password.
+ */
+const resolveOtpMode = (): 'email' | 'mock' | 'refused' => {
+  const mode = (process.env.STUDENT_OTP_MODE || 'email').toLowerCase();
+  if (mode === 'email') return 'email';
+  if (!isProduction()) return 'mock';
+  return process.env.ALLOW_INSECURE_OTP === 'true' ? 'mock' : 'refused';
 };
 
 const createOtpRecord = async (sapId: string, plainOtp: string) => {
@@ -141,39 +156,49 @@ export const requestOtp = async (req: Request, res: Response) => {
       return sendError(res, 'Please wait 60 seconds before requesting another OTP', 429);
     }
 
-    const otpMode = (process.env.STUDENT_OTP_MODE || 'mock').toLowerCase();
-    const mockOtp = resolveMockOtp();
-    const randomOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpCode = otpMode === 'email' ? randomOtp : mockOtp;
+    const otpMode = resolveOtpMode();
 
-    await createOtpRecord(sapId, otpCode);
-
-    if (otpMode !== 'email') {
-      console.log(`[MOCK OTP] sapId=${sapId} otp=${otpCode}`);
-      return sendSuccess(
-        res,
-        { sapId, mockOtp: otpCode, otpMode: 'mock' },
-        'Mock OTP generated successfully'
+    if (otpMode === 'refused') {
+      console.error(
+        '[OTP] Refusing to issue a mock OTP in production. Set STUDENT_OTP_MODE=email ' +
+          'with valid EMAIL_USER/EMAIL_PASS, or set ALLOW_INSECURE_OTP=true to override.'
       );
+      return sendError(res, 'OTP delivery is not configured. Please contact your administrator.', 503);
     }
 
-    const studentEmail = `${sapId}@student.university.edu`;
-    try {
-      await sendEmail(studentEmail, 'Your Login OTP', `Your OTP is: ${otpCode}`);
-
-      return sendSuccess(res, { sapId, otpMode: 'email' }, 'OTP sent successfully');
-    } catch (emailError: any) {
-      // Fallback to mock OTP in case SMTP is unavailable during local demo/testing.
+    if (otpMode === 'mock') {
+      const mockOtp = resolveMockOtp();
       await createOtpRecord(sapId, mockOtp);
-      console.warn(`[OTP EMAIL FALLBACK] sapId=${sapId}: ${emailError.message}`);
       console.log(`[MOCK OTP] sapId=${sapId} otp=${mockOtp}`);
 
       return sendSuccess(
         res,
-        { sapId, mockOtp, otpMode: 'mock' },
-        'Email delivery failed. Mock OTP generated for demo login.'
+        {
+          sapId,
+          otpMode: 'mock',
+          // Never ship the code to the client on a production host, even when the
+          // insecure override is deliberately enabled — read it from the logs.
+          ...(isProduction() ? {} : { mockOtp }),
+        },
+        'Mock OTP generated successfully'
       );
     }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    await createOtpRecord(sapId, otpCode);
+
+    const studentEmail = `${sapId}@student.university.edu`;
+    try {
+      await sendEmail(studentEmail, 'Your Login OTP', `Your OTP is: ${otpCode}`);
+    } catch (emailError: any) {
+      // No mock fallback here: silently downgrading to a well-known code on an SMTP
+      // outage would turn a delivery failure into an authentication bypass.
+      console.error(`[OTP EMAIL FAILED] sapId=${sapId}: ${emailError.message}`);
+      await Otp.deleteMany({ sapId });
+      return sendError(res, 'Could not send the verification code. Please try again shortly.', 502);
+    }
+
+    return sendSuccess(res, { sapId, otpMode: 'email' }, 'OTP sent successfully');
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to send OTP', 500);
   }
