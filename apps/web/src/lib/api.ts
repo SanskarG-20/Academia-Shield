@@ -217,7 +217,9 @@ export async function createStudentProfile(payload: {
   const data = await handleResponse<{ user: UserProfile; token: string }>(
     await fetch(`${BASE_URL}/api/auth/student/profile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Carries the `student_temp` token from verifyStudentOtp — the API derives the
+      // SAP ID from it rather than trusting the body.
+      headers: authHeaders(),
       body: JSON.stringify(payload),
     })
   );

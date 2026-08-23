@@ -226,17 +226,26 @@ export const verifyOtp = async (req: Request, res: Response) => {
 
 // @desc    Complete Student Profile
 // @route   POST /api/auth/student/profile
-export const createStudentProfile = async (req: Request, res: Response) => {
+// @access  Private — requires the short-lived `student_temp` token issued by verifyOtp
+export const createStudentProfile = async (req: Request | any, res: Response) => {
   try {
     const { name, email, department, rollNumber, year } = req.body;
-    const sapId = normalizeSapId(req.body?.sapId);
 
-    if (!sapId || !name || !email || !department || !rollNumber || !year) {
-      return sendError(res, 'All student profile fields are required', 400);
+    // The SAP ID comes from the OTP-verified token, never from the request body —
+    // otherwise this endpoint would mint a full student session for any SAP ID.
+    const sapId = normalizeSapId(req.user?.id);
+
+    if (!sapId || !SAP_ID_REGEX.test(sapId)) {
+      return sendError(res, 'Your verification session is invalid. Please sign in again.', 401);
     }
 
-    if (!SAP_ID_REGEX.test(sapId)) {
-      return sendError(res, 'sapId must be exactly 12 digits', 400);
+    const bodySapId = normalizeSapId(req.body?.sapId);
+    if (bodySapId && bodySapId !== sapId) {
+      return sendError(res, 'sapId does not match your verified session', 403);
+    }
+
+    if (!name || !email || !department || !rollNumber || !year) {
+      return sendError(res, 'All student profile fields are required', 400);
     }
 
     const studentExists = await Student.findOne({ sapId });
@@ -252,6 +261,9 @@ export const createStudentProfile = async (req: Request, res: Response) => {
       rollNumber,
       year,
     });
+
+    // The OTP survived verifyOtp so the student could reach this step; retire it now.
+    await Otp.deleteMany({ sapId });
 
     return sendSuccess(
       res,
