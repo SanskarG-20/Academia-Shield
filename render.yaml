@@ -18,4 +18,8 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      # Comma-separated email domains allowed to self-register as faculty.
+      # Empty disables professor self-registration.
+      - key: ALLOWED_PROFESSOR_DOMAINS
+        sync: false
     healthCheckPath: /

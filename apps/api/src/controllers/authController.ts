@@ -10,6 +10,23 @@ import { sendError, sendSuccess } from '../utils/apiResponse';
 const SAP_ID_REGEX = /^\d{12}$/;
 const OTP_REGEX = /^\d{6}$/;
 
+/**
+ * Email domains permitted to self-register as faculty on first login.
+ * An empty list disables professor self-registration entirely — accounts must
+ * then come from the seed script or a manual insert.
+ */
+const ALLOWED_PROFESSOR_DOMAINS = new Set(
+  (process.env.ALLOWED_PROFESSOR_DOMAINS || '')
+    .split(',')
+    .map((domain) => domain.trim().toLowerCase().replace(/^@/, ''))
+    .filter(Boolean)
+);
+
+const canSelfRegisterProfessor = (email: string) => {
+  const domain = email.split('@')[1] || '';
+  return ALLOWED_PROFESSOR_DOMAINS.has(domain);
+};
+
 const normalizeSapId = (value: unknown) =>
   typeof value === 'string' ? value.trim() : '';
 
@@ -43,7 +60,13 @@ export const loginProfessor = async (req: Request, res: Response) => {
     let professor = await Professor.findOne({ email: normalizedEmail });
 
     if (!professor) {
-      // Auto-register new professor
+      // Self-registration is limited to institutional domains. Anything else gets
+      // the same generic failure as a wrong password so this endpoint can't be
+      // used to enumerate which emails already have accounts.
+      if (!canSelfRegisterProfessor(normalizedEmail)) {
+        return sendError(res, 'Invalid email or password', 401);
+      }
+
       professor = await Professor.create({
         email: normalizedEmail,
         passwordHash: password, // Model's pre-save hook will hash this
