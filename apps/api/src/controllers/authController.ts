@@ -72,11 +72,6 @@ export const loginProfessor = async (req: Request, res: Response) => {
 
     const storedHash = professor.passwordHash || '';
 
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('Input:', password);
-      console.log('Stored:', storedHash);
-    }
-
     const isPasswordValid = await bcrypt.compare(password, storedHash);
 
     if (!isPasswordValid) {
