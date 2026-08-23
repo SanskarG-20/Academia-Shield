@@ -465,7 +465,13 @@ export async function getSessionLogs(sessionId: string): Promise<LogEntry[]> {
 
 // AGENT CONFIG
 export async function getAgentConfig() {
-  const config = await handleResponse<any>(await fetch(`${BASE_URL}/api/agent/config`));
+  // Sends the logged-in user's token: /api/agent/* is authenticated once
+  // AGENT_SHARED_SECRET is set on the API, and the browser can't hold that secret.
+  const config = await handleResponse<any>(
+    await fetch(`${BASE_URL}/api/agent/config`, {
+      headers: authHeaders(),
+    })
+  );
   return normalizeAgentConfig(config);
 }
 
@@ -477,7 +483,7 @@ export async function reportAgentHeartbeat(payload: {
   return handleResponse<any>(
     await fetch(`${BASE_URL}/api/agent/heartbeat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify(payload),
     })
   );

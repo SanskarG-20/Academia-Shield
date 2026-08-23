@@ -18,6 +18,7 @@ from config import (
     SERVER_IP,
     SERVER_PORT,
     AGENT_ID,
+    AGENT_SHARED_SECRET,
     REQUEST_TIMEOUT,
     RETRY_ATTEMPTS,
     RETRY_BACKOFF_SECONDS,
@@ -27,6 +28,14 @@ from config import (
 )
 
 LOGGER = logging.getLogger("academia_shield_agent")
+
+
+def _auth_headers(extra=None):
+    """Build request headers, attaching the shared agent secret when configured."""
+    headers = dict(extra or {})
+    if AGENT_SHARED_SECRET:
+        headers["X-Agent-Secret"] = AGENT_SHARED_SECRET
+    return headers
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +103,7 @@ def fetch_remote_config_once():
         "agentId": AGENT_ID,
     })
     url = f"{protocol}://{SERVER_IP}:{SERVER_PORT}/api/agent/config?{query}"
-    req = urllib.request.Request(url)
+    req = urllib.request.Request(url, headers=_auth_headers())
 
     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as response:
         data = response.read().decode("utf-8")
@@ -141,7 +150,7 @@ def report_to_server(action, domains=None):
         req = urllib.request.Request(
             url,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers({"Content-Type": "application/json"}),
             method="POST",
         )
 
@@ -175,7 +184,7 @@ def send_heartbeat(active_app="Unknown", status="online"):
         req = urllib.request.Request(
             url,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=_auth_headers({"Content-Type": "application/json"}),
             method="POST",
         )
 

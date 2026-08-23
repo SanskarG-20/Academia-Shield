@@ -26,4 +26,8 @@ services:
       # Empty disables professor self-registration.
       - key: ALLOWED_PROFESSOR_DOMAINS
         sync: false
+      # Shared secret for /api/agent/*. Set this only after the rebuilt agent
+      # carrying the same value has been rolled out, or installed agents 401.
+      - key: AGENT_SHARED_SECRET
+        sync: false
     healthCheckPath: /

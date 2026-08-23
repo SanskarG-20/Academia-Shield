@@ -48,6 +48,11 @@ RETRY_BACKOFF_SECONDS = int(os.getenv("RETRY_BACKOFF_SECONDS", "2"))
 AGENT_ID = os.getenv("AGENT_ID", socket.gethostname())
 STUDENT_SAP_ID = os.getenv("STUDENT_SAP_ID", "").strip()
 
+# Shared secret presented as X-Agent-Secret on every /api/agent/* call. Must match
+# AGENT_SHARED_SECRET on the server. Empty means the header is simply omitted, which
+# the server accepts while it is running with enforcement off.
+AGENT_SHARED_SECRET = os.getenv("AGENT_SHARED_SECRET", "").strip()
+
 # ---------------------------------------------------------------------------
 # Enforcement Mode
 # ---------------------------------------------------------------------------
