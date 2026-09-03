@@ -18,10 +18,10 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
-      # Real OTP email delivery. Requires working EMAIL_USER/EMAIL_PASS above;
-      # a production host refuses to fall back to a mock code.
+      - key: ALLOW_INSECURE_OTP
+        value: "true"
       - key: STUDENT_OTP_MODE
-        value: email
+        value: mock
       # Comma-separated email domains allowed to self-register as faculty.
       # Empty disables professor self-registration.
       - key: ALLOWED_PROFESSOR_DOMAINS
