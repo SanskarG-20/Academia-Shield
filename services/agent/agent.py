@@ -198,7 +198,7 @@ RUNNING = True
 LAST_APPLIED_DOMAINS = None
 LAST_STATE = None
 HEARTBEAT_INTERVAL = 15  # seconds between heartbeats
-ACTIVITY_REPORT_INTERVAL = 30  # seconds between activity batch reports
+ACTIVITY_REPORT_INTERVAL = 10  # seconds between activity batch reports
 activity_tracker = None
 
 
@@ -244,7 +244,7 @@ def heartbeat_loop():
     """Send periodic heartbeats with the foreground window title."""
     while RUNNING:
         try:
-            if LAST_STATE == "ACTIVE":
+            if LAST_STATE in ("ACTIVE", "ERROR"):
                 title = get_active_window_title()
                 send_heartbeat(active_app=title, status="online")
             else:
@@ -324,6 +324,9 @@ def sync_once(engine):
         normalized = normalize_domain_list(domains_to_block)
         current_domains_set = set(normalized)
         
+        if activity_tracker:
+            activity_tracker.set_blocked_domains(domains_to_block)
+
         if LAST_STATE != "ACTIVE" or LAST_APPLIED_DOMAINS != current_domains_set:
             LOGGER.info("Applying blocking rules for %s domains via %s", len(normalized), engine.name)
             
@@ -332,13 +335,10 @@ def sync_once(engine):
                 report_to_server("BLOCK_APPLIED", normalized)
                 LAST_STATE = "ACTIVE"
                 LAST_APPLIED_DOMAINS = current_domains_set
-                if activity_tracker:
-                    activity_tracker.set_blocked_domains(domains_to_block)
             else:
-                LOGGER.error("Failed to apply blocking rules. Will retry on next cycle.")
-                # Reset state to force retry
-                LAST_STATE = None
-                LAST_APPLIED_DOMAINS = None
+                LOGGER.error("Failed to apply blocking rules (run as Administrator to block domains). Activity monitoring remains active.")
+                LAST_STATE = "ERROR"
+                LAST_APPLIED_DOMAINS = current_domains_set
         else:
             LOGGER.debug("Blocking rules unchanged; skipping enforcement update")
     else:
