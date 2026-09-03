@@ -110,6 +110,7 @@ export const ingestActivityBatch = async (req: Request, res: Response) => {
     
     emitStudentActivityUpdate(sessionIds.map(String), {
       sapId: normalizedSapId,
+      studentId: String(studentId),
       eventsCount: events.length,
     });
 

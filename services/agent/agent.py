@@ -198,7 +198,7 @@ RUNNING = True
 LAST_APPLIED_DOMAINS = None
 LAST_STATE = None
 HEARTBEAT_INTERVAL = 15  # seconds between heartbeats
-ACTIVITY_REPORT_INTERVAL = 10  # seconds between activity batch reports
+ACTIVITY_REPORT_INTERVAL = 3  # seconds between activity batch reports (near instant)
 activity_tracker = None
 
 

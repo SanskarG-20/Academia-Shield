@@ -77,7 +77,7 @@ export default function StudentActivityModal({
 
   const loadData = async (offset = 0, isRefresh = false, targetSessionId = selectedSessionId) => {
     if (offset === 0 && !isRefresh) setIsLoading(true);
-    setError(null);
+    if (!isRefresh) setError(null);
     try {
       const activeSessionParam = targetSessionId || undefined;
       const [acts, sum] = await Promise.all([
@@ -93,9 +93,9 @@ export default function StudentActivityModal({
       setHasMore(acts.length === 200);
       setPage(Math.floor(offset / 200));
     } catch (err: any) {
-      setError(err.message || 'Failed to load activity');
+      if (!isRefresh) setError(err.message || 'Failed to load activity');
     } finally {
-      setIsLoading(false);
+      if (!isRefresh) setIsLoading(false);
     }
   };
 
@@ -111,18 +111,27 @@ export default function StudentActivityModal({
     loadData(0, false, selectedSessionId);
 
     const socket = getSocket();
-    const onUpdate = (event: ActivityEvent) => {
-      if (event.studentId === student.studentId && (!selectedSessionId || event.sessionId === selectedSessionId)) {
-        setActivities(prev => [event, ...prev]);
-        getStudentActivitySummary(student.studentId, selectedSessionId || undefined).then(setSummary).catch(console.error);
+    const onUpdate = (data: any) => {
+      if (
+        (data?.studentId === student.studentId || data?.sapId === student.sapId) &&
+        (!selectedSessionId || data?.sessionId === selectedSessionId)
+      ) {
+        loadData(0, true, selectedSessionId);
       }
     };
 
     socket.on('student_activity_update', onUpdate);
+
+    // Live continuous stream: silently refresh every 3 seconds while open
+    const liveTimer = setInterval(() => {
+      loadData(0, true, selectedSessionId);
+    }, 3000);
+
     return () => {
       socket.off('student_activity_update', onUpdate);
+      clearInterval(liveTimer);
     };
-  }, [isOpen, student.studentId, selectedSessionId]);
+  }, [isOpen, student.studentId, student.sapId, selectedSessionId]);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
