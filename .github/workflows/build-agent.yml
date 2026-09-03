@@ -47,6 +47,9 @@ jobs:
             --hidden-import env_loader ^
             --hidden-import logger ^
             --hidden-import socketio ^
+            --hidden-import activity ^
+            --hidden-import activity.base ^
+            --hidden-import activity.windows ^
             agent.py
         shell: cmd
 
