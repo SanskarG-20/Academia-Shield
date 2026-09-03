@@ -1,4 +1,4 @@
-import { Batch, LogEntry, RuleSet, Session, UserProfile } from '../types';
+import { Batch, LogEntry, RuleSet, Session, UserProfile, ActivityEvent, ActivitySummary } from '../types';
 
 // Get API URL from environment or use localhost for development
 const API_URL = import.meta.env.VITE_API_URL;
@@ -217,7 +217,9 @@ export async function createStudentProfile(payload: {
   const data = await handleResponse<{ user: UserProfile; token: string }>(
     await fetch(`${BASE_URL}/api/auth/student/profile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Carries the `student_temp` token from verifyStudentOtp — the API derives the
+      // SAP ID from it rather than trusting the body.
+      headers: authHeaders(),
       body: JSON.stringify(payload),
     })
   );
@@ -463,7 +465,13 @@ export async function getSessionLogs(sessionId: string): Promise<LogEntry[]> {
 
 // AGENT CONFIG
 export async function getAgentConfig() {
-  const config = await handleResponse<any>(await fetch(`${BASE_URL}/api/agent/config`));
+  // Sends the logged-in user's token: /api/agent/* is authenticated once
+  // AGENT_SHARED_SECRET is set on the API, and the browser can't hold that secret.
+  const config = await handleResponse<any>(
+    await fetch(`${BASE_URL}/api/agent/config`, {
+      headers: authHeaders(),
+    })
+  );
   return normalizeAgentConfig(config);
 }
 
@@ -475,7 +483,7 @@ export async function reportAgentHeartbeat(payload: {
   return handleResponse<any>(
     await fetch(`${BASE_URL}/api/agent/heartbeat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify(payload),
     })
   );
@@ -497,3 +505,30 @@ export async function pairLocalAgent(sapId: string) {
   }
 }
 
+// STUDENT ACTIVITY
+export async function getStudentActivity(
+  studentId: string,
+  sessionId?: string,
+  limit = 200,
+  offset = 0
+): Promise<ActivityEvent[]> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (sessionId) params.set('sessionId', sessionId);
+  return handleResponse<ActivityEvent[]>(
+    await fetch(`${BASE_URL}/api/activity/student/${studentId}?${params}`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+export async function getStudentActivitySummary(
+  studentId: string,
+  sessionId?: string
+): Promise<ActivitySummary> {
+  const params = sessionId ? `?sessionId=${sessionId}` : '';
+  return handleResponse<ActivitySummary>(
+    await fetch(`${BASE_URL}/api/activity/student/${studentId}/summary${params}`, {
+      headers: authHeaders(),
+    })
+  );
+}

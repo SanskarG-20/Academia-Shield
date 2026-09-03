@@ -9,112 +9,173 @@ Usage:
     python agent.py
 
 Environment Variables:
-    API_URL            — Full API URL (e.g., https://academia-shield-api.onrender.com)
-    TEST_MODE          — "true" for local development
-    SERVER_IP          — Backend API IP address (fallback if API_URL not set)
-    SERVER_PORT        — Backend API port (default 5000)
-    STUDENT_SAP_ID     — Student SAP ID for log attribution
-    POLL_INTERVAL      — Polling interval in seconds (5-10, default 8)
-    ENFORCEMENT_MODE   — "HOSTS" (default) or "DNS"
-    SOCKET_ENABLED     — "true" to enable Socket.IO push (requires python-socketio)
+    API_URL                 — Full API URL (e.g., https://academia-shield-api.onrender.com)
+    TEST_MODE               — "true" for local development
+    SERVER_IP               — Backend API IP address (fallback if API_URL not set)
+    SERVER_PORT             — Backend API port (default 5000)
+    STUDENT_SAP_ID          — Student SAP ID for log attribution
+    AGENT_SHARED_SECRET     — Sent as X-Agent-Secret on /api/agent/* calls
+    PAIRING_ALLOWED_ORIGINS — Comma-separated web origins allowed to pair this machine
+    POLL_INTERVAL           — Polling interval in seconds (clamped to 5-300, default 8)
+    ENFORCEMENT_MODE        — "HOSTS" (default) or "DNS"
+    SOCKET_ENABLED          — "true" to enable Socket.IO push (requires python-socketio)
 
 See config.py for the full list of configuration options.
 """
 
-import sys
 import os
-
-# Load environment variables from .env file before any other imports
-AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
-env_file = os.path.join(AGENT_DIR, f".env.{os.getenv('NODE_ENV', 'development')}")
-if not os.path.exists(env_file):
-    env_file = os.path.join(AGENT_DIR, ".env")
-
-if os.path.exists(env_file):
-    with open(env_file) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#') and '=' in line:
-                key, value = line.split('=', 1)
-                os.environ.setdefault(key.strip(), value.strip())
-
-import time
-import logging
-import ctypes
 import sys
-import argparse
-import traceback
-import signal
-import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import config
-import threading
-import platform
-import subprocess
-import shutil
 
-# Ensure the agent directory is on sys.path so relative imports work
-# regardless of the working directory.
-script_dir = os.path.dirname(os.path.abspath(__file__))
-if script_dir not in sys.path:
-    sys.path.insert(0, script_dir)
+# Ensure the agent directory is on sys.path so our sibling modules import
+# correctly regardless of the working directory the agent was launched from.
+AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if AGENT_DIR not in sys.path:
+    sys.path.insert(0, AGENT_DIR)
 
+
+def _force_utf8_console():
+    """
+    Make stdout/stderr UTF-8 tolerant.
+
+    The default Windows console codepage (cp1252) cannot encode the check and
+    cross marks used in the status output, which otherwise raises
+    UnicodeEncodeError and kills the process. errors="replace" keeps the agent
+    alive on any codepage.
+    """
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
+_force_utf8_console()
+
+# Populate os.environ from the .env files BEFORE importing config, because
+# config.py reads os.environ at import time.
 import env_loader
+
 env_loader.load_env()
 
-# Now we can safely import our local modules
+import ctypes
+import json
+import platform
+import re
+import shutil
+import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# Imported as a module (not `from config import ...`) so that the SAP ID set
+# at runtime by the local pairing server is visible to every reader.
+import config
 from config import (
+    AGENT_ID,
     ENFORCEMENT_MODE,
     POLL_INTERVAL,
     SERVER_IP,
     SERVER_PORT,
-    AGENT_ID,
-    TEST_MODE,
     SOCKET_ENABLED,
     SOCKET_URL,
+    TEST_MODE,
 )
 from logger import setup_logger
-from comms import http_client, socket_client
+from comms import fetch_config_with_retry, report_to_server, send_heartbeat
+from comms import http_client
 from enforcement import get_engine, normalize_domain_list
+from activity import get_activity_tracker
 
 LOGGER = setup_logger()
 
 # ---------------------------------------------------------------------------
 # Local Identity Server (Allows Web App to set SAP ID seamlessly)
 # ---------------------------------------------------------------------------
+SAP_ID_PATTERN = re.compile(r"^\d{12}$")
+
+
 class LocalAgentHandler(BaseHTTPRequestHandler):
+    """
+    Accepts the pairing handshake from the web app on 127.0.0.1:49494.
+
+    This endpoint decides which student every subsequent report and heartbeat is
+    attributed to, so it is origin-checked rather than left open. CORS headers alone
+    would not be enough: a simple cross-origin POST still reaches the handler even
+    though the browser hides the response, so the Origin is validated before any
+    state changes.
+    """
+
+    def _resolve_origin(self):
+        """Return (origin_header, is_allowed) for the current request."""
+        origin = (self.headers.get('Origin') or '').strip().rstrip('/')
+        if not origin:
+            # Not a browser. The socket is bound to loopback, so the caller is
+            # already a local process with at least this much privilege.
+            return '', True
+        return origin, origin.lower() in config.PAIRING_ALLOWED_ORIGINS
+
+    def _respond(self, status, body=b'', origin=''):
+        self.send_response(status)
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
+
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        origin, allowed = self._resolve_origin()
+        if not allowed:
+            LOGGER.warning(f"Rejected pairing preflight from disallowed origin: {origin}")
+            self._respond(403, b'{"error":"origin not allowed"}')
+            return
+
+        self.send_response(204)
+        if origin:
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Max-Age', '600')
+        self.send_header('Content-Length', '0')
         self.end_headers()
 
     def do_POST(self):
-        if self.path == '/identify':
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length > 0:
-                post_data = self.rfile.read(content_length)
-                try:
-                    data = json.loads(post_data.decode('utf-8'))
-                    sap_id = data.get('sapId')
-                    if sap_id:
-                        config.STUDENT_SAP_ID = str(sap_id).strip()
-                        LOGGER.info(f"Agent successfully paired with SAP ID: {config.STUDENT_SAP_ID}")
-                        
-                        self.send_response(200)
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.send_header('Content-Type', 'application/json')
-                        self.end_headers()
-                        self.wfile.write(b'{"status":"ok"}')
-                        return
-                except Exception as e:
-                    LOGGER.error(f"Error parsing identify payload: {e}")
-        
-        self.send_response(400)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        self.wfile.write(b'{"error":"invalid request"}')
+        origin, allowed = self._resolve_origin()
+        if not allowed:
+            LOGGER.warning(f"Rejected pairing request from disallowed origin: {origin}")
+            self._respond(403, b'{"error":"origin not allowed"}')
+            return
+
+        if self.path != '/identify':
+            self._respond(404, b'{"error":"not found"}', origin)
+            return
+
+        try:
+            content_length = int(self.headers.get('Content-Length', 0) or 0)
+        except ValueError:
+            content_length = 0
+
+        if 0 < content_length <= 4096:
+            post_data = self.rfile.read(content_length)
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                sap_id = str(data.get('sapId') or '').strip()
+                if SAP_ID_PATTERN.match(sap_id):
+                    config.STUDENT_SAP_ID = sap_id
+                    LOGGER.info(f"Agent successfully paired with SAP ID: {sap_id}")
+                    self._respond(200, b'{"status":"ok"}', origin)
+                    return
+            except Exception as e:
+                LOGGER.error(f"Error parsing identify payload: {e}")
+
+        self._respond(400, b'{"error":"invalid request"}', origin)
 
     def log_message(self, format, *args):
         pass # Suppress HTTP access logs
@@ -135,6 +196,8 @@ RUNNING = True
 LAST_APPLIED_DOMAINS = None
 LAST_STATE = None
 HEARTBEAT_INTERVAL = 15  # seconds between heartbeats
+ACTIVITY_REPORT_INTERVAL = 30  # seconds between activity batch reports
+activity_tracker = None
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +257,20 @@ def heartbeat_loop():
             time.sleep(1)
 
 
+def activity_report_loop(tracker):
+    """Periodically flush and send batched activity events to the backend."""
+    while RUNNING:
+        for _ in range(ACTIVITY_REPORT_INTERVAL * 10):
+            if not RUNNING:
+                return
+            time.sleep(0.1)
+        
+        events = tracker.flush()
+        if events:
+            http_client.send_activity_batch(events)
+            LOGGER.debug("Sent %d activity events", len(events))
+
+
 # ---------------------------------------------------------------------------
 # Admin rights check
 # ---------------------------------------------------------------------------
@@ -209,46 +286,20 @@ def is_admin():
 
 
 # ---------------------------------------------------------------------------
-# Engine selection
-# ---------------------------------------------------------------------------
-def get_engine():
-    """Select the enforcement engine based on ENFORCEMENT_MODE config."""
-    if ENFORCEMENT_MODE == "DNS":
-        try:
-            from enforcement.dns import DnsEnforcementEngine
-            engine = DnsEnforcementEngine()
-            if engine.is_available():
-                LOGGER.info("DNS enforcement engine loaded successfully")
-                return engine
-            LOGGER.warning("DNS engine is not available on this system — falling back to HOSTS mode")
-        except ImportError as err:
-            LOGGER.warning("DNS engine could not be imported (%s) — falling back to HOSTS mode", err)
-        except Exception as err:
-            LOGGER.warning("DNS engine initialisation failed (%s) — falling back to HOSTS mode", err)
-
-    engine = HostsEnforcementEngine()
-    if engine.is_available():
-        return engine
-
-    LOGGER.error("No enforcement engine is available. Check permissions.")
-    return engine  # Return anyway — errors will be caught at apply_rules time
-
-
-# ---------------------------------------------------------------------------
 # Sync cycle
 # ---------------------------------------------------------------------------
 def sync_once(engine):
     """Single polling cycle: fetch config → apply or restore rules."""
-    config = fetch_config_with_retry()
-    if not config:
+    remote_config = fetch_config_with_retry()
+    if not remote_config:
         LOGGER.warning("No config available from server or cache; retrying in %ss", POLL_INTERVAL)
         return
 
-    should_block = bool(config.get("active", config.get("blocking_active", False)))
+    should_block = bool(remote_config.get("active", remote_config.get("blocking_active", False)))
     domains_to_block = sorted(
         set(
             str(d).strip().lower()
-            for d in config.get("blockedDomains", config.get("domains", []))
+            for d in remote_config.get("blockedDomains", remote_config.get("domains", []))
             if str(d).strip()
         )
     )
@@ -256,9 +307,9 @@ def sync_once(engine):
     LOGGER.info(
         "Fetch response | active=%s sessions=%s domains=%s test_mode=%s engine=%s",
         should_block,
-        len(config.get("active_sessions", [])),
+        len(remote_config.get("active_sessions", [])),
         len(domains_to_block),
-        config.get("test_mode", TEST_MODE),
+        remote_config.get("test_mode", TEST_MODE),
         engine.name,
     )
 
@@ -279,6 +330,8 @@ def sync_once(engine):
                 report_to_server("BLOCK_APPLIED", normalized)
                 LAST_STATE = "ACTIVE"
                 LAST_APPLIED_DOMAINS = current_domains_set
+                if activity_tracker:
+                    activity_tracker.set_blocked_domains(domains_to_block)
             else:
                 LOGGER.error("Failed to apply blocking rules. Will retry on next cycle.")
                 # Reset state to force retry
@@ -326,38 +379,51 @@ def main():
     engine = get_engine()
     LOGGER.info("Active engine:    %s", engine.name)
 
-    # Socket.IO setup
-    socket_client = None
+    # Socket.IO setup (optional push channel; HTTP polling works regardless)
+    agent_socket = None
     if SOCKET_ENABLED:
         def on_socket_event(data):
             LOGGER.info("Socket event received — forcing immediate sync")
             SYNC_EVENT.set()
 
-        from comms.socket_client import AgentSocketClient
-        socket_client = AgentSocketClient(
+        from comms import AgentSocketClient
+
+        agent_socket = AgentSocketClient(
             server_url=SOCKET_URL,
             agent_id=AGENT_ID,
             on_session_started=on_socket_event,
             on_session_ended=on_socket_event,
         )
-        socket_client.connect()
+        agent_socket.connect()
 
     # Start heartbeat thread (daemon so it auto-stops with the process)
     heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True, name="heartbeat")
     heartbeat_thread.start()
     LOGGER.info("Heartbeat:        every %ss", HEARTBEAT_INTERVAL)
 
-    # Apply immediately on startup to ensure restart reliability
-    sync_once(engine)
+    # Start activity tracker
+    global activity_tracker
+    activity_tracker = get_activity_tracker()
+    activity_tracker.start()
+    LOGGER.info("Activity tracker: %s", activity_tracker.__class__.__name__)
 
-    # Main polling loop
+    activity_thread = threading.Thread(target=activity_report_loop, args=(activity_tracker,), daemon=True, name="activity-reporter")
+    activity_thread.start()
+
+    # Main polling loop. The first iteration runs immediately so that a
+    # restart re-applies any in-progress session without waiting a full cycle.
     global RUNNING
+    first_cycle = True
+
     while RUNNING:
         try:
-            # Wait for either POLL_INTERVAL seconds or an immediate socket event
-            SYNC_EVENT.wait(POLL_INTERVAL)
-            SYNC_EVENT.clear()
-            
+            if first_cycle:
+                first_cycle = False
+            else:
+                # Wait for either POLL_INTERVAL seconds or an immediate socket event
+                SYNC_EVENT.wait(POLL_INTERVAL)
+                SYNC_EVENT.clear()
+
             if not RUNNING:
                 break
 
@@ -377,13 +443,20 @@ def main():
             SYNC_EVENT.clear()
 
     # Graceful shutdown (reached via KeyboardInterrupt or RUNNING=False)
+    RUNNING = False
     LOGGER.info("Restoring original system state before shutdown...")
     try:
+        if activity_tracker:
+            # Final flush
+            events = activity_tracker.flush()
+            if events:
+                http_client.send_activity_batch(events)
+            activity_tracker.stop()
         engine.shutdown()
         report_to_server("BLOCK_REMOVED")
     finally:
-        if socket_client:
-            socket_client.disconnect()
+        if agent_socket:
+            agent_socket.disconnect()
         LOGGER.info("Agent stopped.")
 
 
@@ -438,7 +511,8 @@ def do_install():
     print("=" * 55)
     print()
 
-    # SAP ID will be provided dynamically by the web app    # 2. Create install directory
+    # 2. Create install directory. The SAP ID is intentionally left blank —
+    #    the web app pairs it at runtime via the local identity server.
     os.makedirs(INSTALL_DIR, exist_ok=True)
 
     # 3. Copy the exe
@@ -455,7 +529,8 @@ def do_install():
 
     # 4. Write .env.production
     print("  [2/3] Saving configuration...")
-    env_content = f"""# Academia Shield Agent — Auto-generated configuration
+    env_content = """# Academia Shield Agent — Auto-generated configuration
+NODE_ENV=production
 TEST_MODE=false
 API_URL=https://academia-shield-api.onrender.com
 POLL_INTERVAL=30
@@ -465,7 +540,7 @@ ENFORCEMENT_MODE=HOSTS
 SOCKET_ENABLED=false
 STUDENT_SAP_ID=
 """
-    with open(INSTALL_ENV, "w") as f:
+    with open(INSTALL_ENV, "w", encoding="utf-8") as f:
         f.write(env_content)
 
     # 5. Create Scheduled Task
@@ -577,28 +652,31 @@ def do_status():
     if os.path.exists(INSTALL_EXE):
         print(f"  Install:    {INSTALL_EXE} ✓")
     else:
-        print(f"  Install:    Not installed")
+        print("  Install:    Not installed")
 
     # Check env file
     if os.path.exists(INSTALL_ENV):
-        with open(INSTALL_ENV) as f:
+        with open(INSTALL_ENV, encoding="utf-8") as f:
             for line in f:
                 if line.strip().startswith("STUDENT_SAP_ID="):
                     sap = line.strip().split("=", 1)[1]
-                    print(f"  SAP ID:     {sap or '(not set)'}")
+                    print(f"  SAP ID:     {sap or '(paired at runtime by the web app)'}")
                     break
     else:
         print("  SAP ID:     (no config found)")
 
-    # Check scheduled task
-    result = subprocess.run(
-        ["schtasks", "/query", "/tn", TASK_NAME],
-        capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        print("  Auto-start: Enabled ✓")
+    # Check scheduled task (Windows only — schtasks does not exist elsewhere)
+    if platform.system() != "Windows":
+        print("  Auto-start: n/a (Windows only)")
     else:
-        print("  Auto-start: Disabled ✗")
+        result = subprocess.run(
+            ["schtasks", "/query", "/tn", TASK_NAME],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            print("  Auto-start: Enabled ✓")
+        else:
+            print("  Auto-start: Disabled ✗")
 
     print()
     return 0

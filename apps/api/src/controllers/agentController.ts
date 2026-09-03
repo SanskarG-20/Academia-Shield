@@ -23,6 +23,18 @@ const ALLOWED_DEVICE_IDS = new Set(
     .filter(Boolean)
 );
 
+// An empty allowlist waves every device through, which is easy to mistake for an
+// active control. Say so once at boot rather than letting it pass silently.
+if (ALLOWED_DEVICE_IDS.size === 0) {
+  console.warn(
+    '[agent-config] AGENT_ALLOWED_DEVICE_IDS is empty — every device is accepted. ' +
+      'Authentication is handled by AGENT_SHARED_SECRET; set that if it is unset.'
+  );
+}
+if (TEST_MODE && process.env.NODE_ENV === 'production') {
+  console.warn('[agent-config] TEST_MODE=true in production — the device allowlist is bypassed.');
+}
+
 const normalizeDomain = (value: string) => value.trim().toLowerCase();
 
 /**

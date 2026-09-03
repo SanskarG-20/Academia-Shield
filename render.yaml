@@ -18,4 +18,16 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      # Real OTP email delivery. Requires working EMAIL_USER/EMAIL_PASS above;
+      # a production host refuses to fall back to a mock code.
+      - key: STUDENT_OTP_MODE
+        value: email
+      # Comma-separated email domains allowed to self-register as faculty.
+      # Empty disables professor self-registration.
+      - key: ALLOWED_PROFESSOR_DOMAINS
+        sync: false
+      # Shared secret for /api/agent/*. Set this only after the rebuilt agent
+      # carrying the same value has been rolled out, or installed agents 401.
+      - key: AGENT_SHARED_SECRET
+        sync: false
     healthCheckPath: /

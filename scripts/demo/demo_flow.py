@@ -132,7 +132,9 @@ def main():
     start = time.time()
     try:
         while time.time() - start < 60:
-            config = api("GET", "/api/agent/config", auth=False)
+            # Send the professor token: /api/agent/* accepts either the shared agent
+            # secret or a signed-in user's JWT once AGENT_SHARED_SECRET is set.
+            config = api("GET", "/api/agent/config")
             status = "🔴 BLOCKING ACTIVE" if config.get("blocking_active") else "🟢 STANDBY"
             domains = config.get("domains", [])
             active_list = config.get("active_sessions", [])
@@ -151,7 +153,7 @@ def main():
     api("PATCH", f"/api/sessions/{session_id}/status", {"status": "completed"})
     time.sleep(3)
     
-    config = api("GET", "/api/agent/config", auth=False)
+    config = api("GET", "/api/agent/config")
     final_status = config.get("blocking_active", False)
     print(f"✅ Session ended. blocking_active = {final_status}")
     print(f"   Students will regain access within {POLL_INTERVAL}s\n")

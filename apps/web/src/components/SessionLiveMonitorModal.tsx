@@ -13,7 +13,7 @@ import {
 import { Session, LogEntry } from '../types';
 import { getSocket, joinSession } from '../lib/socket';
 import { getLogs, getSessionLogs, getBatchById } from '../lib/api';
-
+import StudentActivityModal from './StudentActivityModal';
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface StudentTelemetry {
   studentId: string;
@@ -70,6 +70,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
   session,
 }) => {
   const [students, setStudents] = useState<Map<string, StudentTelemetry>>(new Map());
+  const [selectedStudent, setSelectedStudent] = useState<StudentTelemetry | null>(null);
   const [recentLogs, setRecentLogs] = useState<LogEntry[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
   const presenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -419,7 +420,11 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                     return (
                       <div
                         key={student.studentId}
-                        className={`relative p-4 rounded-xl border transition-all duration-300 ${
+                        onClick={() => setSelectedStudent(student)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedStudent(student); } }}
+                        className={`relative p-4 rounded-xl border transition-all duration-300 cursor-pointer hover:ring-2 hover:ring-indigo-500/50 ${
                           student.isViolation
                             ? 'border-rose-400 dark:border-rose-700 bg-rose-50/80 dark:bg-rose-950/30 shadow-rose-200/50 dark:shadow-rose-900/20 shadow-md animate-pulse-slow'
                             : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:shadow-md'
@@ -519,6 +524,15 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
           </div>
         </div>
       </div>
+      {selectedStudent && (
+        <StudentActivityModal
+          isOpen={!!selectedStudent}
+          onClose={() => setSelectedStudent(null)}
+          student={selectedStudent}
+          sessionId={session._id}
+          sessionTitle={session.title}
+        />
+      )}
     </div>
   );
 };
