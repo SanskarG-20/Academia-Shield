@@ -124,3 +124,12 @@ export const emitStudentTelemetry = (sessionIds: string[], telemetry: {
     });
   }
 };
+
+export const emitStudentActivityUpdate = (sessionIds: string[], data: any) => {
+  const io = getIO();
+  if (!io) return;
+
+  for (const sid of sessionIds) {
+    io.to(sid).emit('student_activity_update', { sessionId: sid, ...data });
+  }
+};

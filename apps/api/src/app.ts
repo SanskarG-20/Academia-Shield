@@ -8,6 +8,7 @@ import sessionRoutes from './routes/sessionRoutes';
 import ruleRoutes from './routes/ruleRoutes';
 import logRoutes from './routes/logRoutes';
 import agentRoutes from './routes/agentRoutes';
+import activityRoutes from './routes/activityRoutes';
 import { errorHandler } from './middleware/error';
 
 const app = express();
@@ -44,6 +45,7 @@ app.use('/api/sessions', sessionRoutes);
 app.use('/api/rules', ruleRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/agent', agentRoutes);
+app.use('/api/activity', activityRoutes);
 
 // Health Check
 app.get('/', (req, res) => {

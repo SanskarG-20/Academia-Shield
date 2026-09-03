@@ -87,3 +87,29 @@ export interface UserProfile {
   designation?: string;
   joinedBatches?: Batch[];
 }
+
+export interface ActivityEvent {
+  _id: string;
+  sessionId: string;
+  studentId: string;
+  studentName: string;
+  sapId: string;
+  eventType: 'APP_FOCUS' | 'DOMAIN_VISIT' | 'DOMAIN_BLOCKED';
+  application: string;
+  domain?: string;
+  title?: string;
+  status: 'ALLOWED' | 'BLOCKED';
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  createdAt: string;
+}
+
+export interface ActivitySummary {
+  totalActiveMs: number;
+  topApplications: Array<{ application: string; durationMs: number; count: number }>;
+  topDomains: Array<{ domain: string; durationMs: number; count: number; status: string }>;
+  blockedAttempts: number;
+  allowedDomains: number;
+  uniqueApps: number;
+}

@@ -194,3 +194,28 @@ def send_heartbeat(active_app="Unknown", status="online"):
 
     except Exception as err:
         LOGGER.debug("Heartbeat failed (non-fatal): %s", err)
+
+
+def send_activity_batch(events):
+    """POST batched activity events to the backend (best-effort)."""
+    if not config.STUDENT_SAP_ID or not events:
+        return
+
+    try:
+        payload = json.dumps({
+            "sapId": config.STUDENT_SAP_ID,
+            "events": events,
+        }).encode("utf-8")
+
+        protocol = "https" if USE_HTTPS else "http"
+        url = f"{protocol}://{SERVER_IP}:{SERVER_PORT}/api/agent/activity"
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers=_auth_headers({"Content-Type": "application/json"}),
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+            LOGGER.debug("Activity batch sent: %d events, status %s", len(events), resp.status)
+    except Exception as err:
+        LOGGER.debug("Activity batch failed (non-fatal): %s", err)

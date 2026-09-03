@@ -1,4 +1,4 @@
-import { Batch, LogEntry, RuleSet, Session, UserProfile } from '../types';
+import { Batch, LogEntry, RuleSet, Session, UserProfile, ActivityEvent, ActivitySummary } from '../types';
 
 // Get API URL from environment or use localhost for development
 const API_URL = import.meta.env.VITE_API_URL;
@@ -505,3 +505,30 @@ export async function pairLocalAgent(sapId: string) {
   }
 }
 
+// STUDENT ACTIVITY
+export async function getStudentActivity(
+  studentId: string,
+  sessionId?: string,
+  limit = 200,
+  offset = 0
+): Promise<ActivityEvent[]> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (sessionId) params.set('sessionId', sessionId);
+  return handleResponse<ActivityEvent[]>(
+    await fetch(`${BASE_URL}/api/activity/student/${studentId}?${params}`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+export async function getStudentActivitySummary(
+  studentId: string,
+  sessionId?: string
+): Promise<ActivitySummary> {
+  const params = sessionId ? `?sessionId=${sessionId}` : '';
+  return handleResponse<ActivitySummary>(
+    await fetch(`${BASE_URL}/api/activity/student/${studentId}/summary${params}`, {
+      headers: authHeaders(),
+    })
+  );
+}
