@@ -123,6 +123,7 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         if origin:
             self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Vary', 'Origin')
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
         self.send_header('Content-Type', 'application/json')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
@@ -140,8 +141,9 @@ class LocalAgentHandler(BaseHTTPRequestHandler):
         if origin:
             self.send_header('Access-Control-Allow-Origin', origin)
             self.send_header('Vary', 'Origin')
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
         self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Access-Control-Request-Private-Network')
         self.send_header('Access-Control-Max-Age', '600')
         self.send_header('Content-Length', '0')
         self.end_headers()
@@ -532,7 +534,7 @@ def do_install():
     env_content = """# Academia Shield Agent — Auto-generated configuration
 NODE_ENV=production
 TEST_MODE=false
-API_URL=https://academia-shield-api.onrender.com
+API_URL=https://academia-shield.onrender.com
 POLL_INTERVAL=30
 REQUEST_TIMEOUT=10
 RETRY_ATTEMPTS=5
