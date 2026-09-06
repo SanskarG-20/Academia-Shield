@@ -4,6 +4,8 @@ import app from './app';
 import { Server } from 'socket.io';
 import { connectDB } from './config/db';
 import { setupSocket } from './services/socketService';
+import Session from './models/Session';
+import { runAnomalyCheck } from './services/anomalyService';
 
 const PORT = process.env.PORT || 5000;
 
@@ -50,6 +52,18 @@ const startServer = async () => {
     server.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`🚀 Server running on 0.0.0.0:${PORT}`);
     });
+
+    // Schedule anomaly checks during active sessions (every 5 minutes)
+    setInterval(async () => {
+      try {
+        const activeSessions = await Session.find({ status: { $in: ['Active', 'active'] } });
+        for (const session of activeSessions) {
+          await runAnomalyCheck(session._id.toString()).catch(console.error);
+        }
+      } catch (err) {
+        console.error('Error running scheduled anomaly checks:', err);
+      }
+    }, 5 * 60 * 1000);
   } catch (error: any) {
     console.error(`❌ Unable to start server: ${error.message}`);
     process.exit(1);

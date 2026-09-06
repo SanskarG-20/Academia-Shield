@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import Session from '../models/Session';
 import Rule from '../models/Rule';
 import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
 import { getIO } from '../services/socketService';
+import { runAnomalyCheck } from '../services/anomalyService';
 
 const VALID_STATUSES = ['Upcoming', 'Active', 'Completed', 'Cancelled'];
 
@@ -283,5 +285,31 @@ export const deleteSession = async (req: Request | any, res: Response) => {
     return sendSuccess(res, null, 'Session deleted successfully');
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to delete session', 500);
+  }
+};
+
+// @desc    Trigger statistical anomaly check for a session
+// @route   POST /api/sessions/:id/check-anomalies
+export const checkSessionAnomalies = async (req: Request | any, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return sendError(res, 'Invalid session ID format', 400);
+    }
+
+    const session = await Session.findById(id);
+    if (!session) {
+      return sendError(res, 'Session not found', 404);
+    }
+
+    if (session.professorId.toString() !== req.user.id) {
+      return sendError(res, 'Not authorized for this session', 403);
+    }
+
+    const result = await runAnomalyCheck(id);
+    return sendSuccess(res, result, 'Anomaly check completed successfully');
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to check anomalies', 500);
   }
 };
