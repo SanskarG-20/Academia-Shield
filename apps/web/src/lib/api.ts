@@ -549,3 +549,15 @@ export async function checkSessionAnomalies(sessionId: string): Promise<AnomalyC
   );
 }
 
+// SESSION SUMMARY
+export async function getSessionSummary(
+  id: string
+): Promise<{ aiSummary: string; generatedAt: string; stats?: any }> {
+  return handleResponse<{ aiSummary: string; generatedAt: string; stats?: any }>(
+    await fetch(`${BASE_URL}/api/sessions/${id}/summary`, {
+      headers: authHeaders(),
+    })
+  );
+}
+
+

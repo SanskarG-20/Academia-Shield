@@ -352,11 +352,25 @@ export const getSessionSummary = async (req: Request | any, res: Response) => {
       return sendError(res, 'Not authorized to view this summary', 403);
     }
 
+    let stats = null;
+    try {
+      const aggData = await aggregateSessionData(id);
+      stats = {
+        totalStudents: aggData.totalStudents,
+        totalBlockedAttempts: aggData.totalBlockedAttempts,
+        peakDistractionWindow: aggData.peakDistractionWindow,
+        anomalousStudents: aggData.anomalousStudents,
+      };
+    } catch (aggErr) {
+      console.warn('[session-summary] Failed to aggregate session stats:', aggErr);
+    }
+
     return sendSuccess(
       res,
       {
         aiSummary: session.aiSummary || null,
         generatedAt: session.summaryGeneratedAt || null,
+        stats,
       },
       'Session summary fetched successfully'
     );

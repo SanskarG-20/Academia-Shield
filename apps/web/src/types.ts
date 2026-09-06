@@ -57,8 +57,21 @@ export interface Session {
   ruleSetId?: string;
   batchIds: string[];
   professorId?: string;
+  aiSummary?: string;
+  summaryGeneratedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface SessionSummaryResponse {
+  aiSummary: string;
+  generatedAt: string;
+  stats?: {
+    totalStudents: number;
+    totalBlockedAttempts: number;
+    peakDistractionWindow: string;
+    anomalousStudents: number;
+  };
 }
 
 export interface LogEntry {

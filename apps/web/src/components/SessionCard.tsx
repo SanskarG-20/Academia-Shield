@@ -9,6 +9,7 @@ interface SessionCardProps {
   batchNameById?: Record<string, string>;
   onStatusChange: (id: string, newStatus: string) => Promise<void>;
   onOpenMonitor?: (session: Session) => void;
+  onOpenSummary?: (session: Session) => void;
   onGenerateSummary: (session: Session) => void;
   onDeleteSession: (id: string) => void;
   currentTime: Date;
@@ -20,6 +21,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
   batchNameById = {},
   onStatusChange,
   onOpenMonitor,
+  onOpenSummary,
   onGenerateSummary,
   onDeleteSession,
   currentTime,
@@ -109,42 +111,57 @@ export const SessionCard: React.FC<SessionCardProps> = ({
       </td>
       {!isStudent && (
         <td className="px-6 py-4 text-right">
-          <div className="flex justify-end items-center gap-2">
-            {session.status.toLowerCase() === 'upcoming' && (
-              <Button size="sm" variant="outline" className="h-8 !px-2" onClick={() => onStatusChange(sessionId, 'active')}>
-                <Play size={14} className="mr-1" /> Start
-              </Button>
-            )}
-            {session.status.toLowerCase() === 'active' && (
-              <>
-                <Button size="sm" variant="outline" className="h-8 !px-2 !border-brand-500 !text-brand-600 dark:!text-brand-400" onClick={() => onOpenMonitor?.(session)}>
-                  <Eye size={14} className="mr-1" /> Live Monitor
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex justify-end items-center gap-2">
+              {session.status.toLowerCase() === 'upcoming' && (
+                <Button size="sm" variant="outline" className="h-8 !px-2" onClick={() => onStatusChange(sessionId, 'active')}>
+                  <Play size={14} className="mr-1" /> Start
                 </Button>
-                <Button size="sm" variant="danger" className="h-8 !px-2" onClick={() => onStatusChange(sessionId, 'completed')}>
-                  <Square size={14} className="mr-1" /> End
+              )}
+              {session.status.toLowerCase() === 'active' && (
+                <>
+                  <Button size="sm" variant="outline" className="h-8 !px-2 !border-brand-500 !text-brand-600 dark:!text-brand-400" onClick={() => onOpenMonitor?.(session)}>
+                    <Eye size={14} className="mr-1" /> Live Monitor
+                  </Button>
+                  <Button size="sm" variant="danger" className="h-8 !px-2" onClick={() => onStatusChange(sessionId, 'completed')}>
+                    <Square size={14} className="mr-1" /> End
+                  </Button>
+                </>
+              )}
+              {session.status.toLowerCase() === 'upcoming' && (
+                <Button size="sm" variant="ghost" className="h-8 !px-2 text-slate-500" onClick={() => onStatusChange(sessionId, 'cancelled')}>
+                  <XCircle size={14} className="mr-1" /> Cancel
                 </Button>
-              </>
-            )}
-            {session.status.toLowerCase() === 'upcoming' && (
-              <Button size="sm" variant="ghost" className="h-8 !px-2 text-slate-500" onClick={() => onStatusChange(sessionId, 'cancelled')}>
-                <XCircle size={14} className="mr-1" /> Cancel
-              </Button>
-            )}
+              )}
 
-            <button
-              className="text-brand-600 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300 p-2 rounded-full hover:bg-brand-50 dark:hover:bg-brand-900/10 transition-colors ml-2"
-              onClick={() => onGenerateSummary(session)}
-              title="AI Summary"
-            >
-              <Sparkles size={18} />
-            </button>
-            <button
-              className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/10"
-              onClick={() => onDeleteSession(sessionId)}
-              title="Delete Session"
-            >
-              <Trash2 size={18} />
-            </button>
+              {session.status.toLowerCase() !== 'completed' && (
+                <button
+                  className="text-brand-600 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300 p-2 rounded-full hover:bg-brand-50 dark:hover:bg-brand-900/10 transition-colors ml-2"
+                  onClick={() => (onOpenSummary ? onOpenSummary(session) : onGenerateSummary(session))}
+                  title="AI Summary"
+                >
+                  <Sparkles size={18} />
+                </button>
+              )}
+              <button
+                className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/10"
+                onClick={() => onDeleteSession(sessionId)}
+                title="Delete Session"
+              >
+                <Trash2 size={18} />
+              </button>
+            </div>
+
+            {session.status.toLowerCase() === 'completed' && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 !px-2 text-xs font-semibold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950/40"
+                onClick={() => (onOpenSummary ? onOpenSummary(session) : onGenerateSummary(session))}
+              >
+                <Sparkles size={13} className="mr-1 text-brand-500" /> View AI Summary
+              </Button>
+            )}
           </div>
         </td>
       )}

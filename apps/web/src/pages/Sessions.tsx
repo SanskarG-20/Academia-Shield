@@ -35,6 +35,7 @@ import { getSocket } from '../lib/socket';
 import { SessionCard } from '../components/SessionCard';
 import { CreateSessionModal } from '../components/CreateSessionModal';
 import { SessionLiveMonitorModal } from '../components/SessionLiveMonitorModal';
+import { SessionSummaryModal } from '../components/SessionSummaryModal';
 
 export const Sessions: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -43,6 +44,7 @@ export const Sessions: React.FC = () => {
   const [agentConfig, setAgentConfig] = useState<any>(null);
   const [studentSapId, setStudentSapId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [summaryModalSession, setSummaryModalSession] = useState<Session | null>(null);
   const [error, setError] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -525,6 +527,7 @@ ${logsText}
                     batchNameById={batchNameById}
                     onStatusChange={handleStatusChange}
                     onOpenMonitor={(s) => setMonitorSession(s)}
+                    onOpenSummary={(s) => setSummaryModalSession(s)}
                     onGenerateSummary={handleGenerateSummary}
                     onDeleteSession={handleDeleteSession}
                     currentTime={currentTime}
@@ -613,6 +616,15 @@ ${logsText}
           isOpen={!!monitorSession}
           onClose={() => setMonitorSession(null)}
           session={monitorSession}
+        />
+      )}
+
+      {/* AI Post-Session Summary Modal */}
+      {summaryModalSession && (
+        <SessionSummaryModal
+          isOpen={!!summaryModalSession}
+          onClose={() => setSummaryModalSession(null)}
+          session={summaryModalSession}
         />
       )}
     </div>
