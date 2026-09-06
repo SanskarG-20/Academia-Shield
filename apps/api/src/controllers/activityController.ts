@@ -5,6 +5,8 @@ import Student from '../models/Student';
 import ActivityEvent from '../models/ActivityEvent';
 import { sendError, sendSuccess } from '../utils/apiResponse';
 import { emitStudentActivityUpdate } from '../services/socketService';
+import { getIO } from '../services/socketService';
+import { calculateAttentionScore, getScoreLabel, getScoreColor } from '../utils/attentionScore';
 
 const findActiveSessionsForStudent = async (
   studentId: mongoose.Types.ObjectId,
@@ -113,6 +115,36 @@ export const ingestActivityBatch = async (req: Request, res: Response) => {
       studentId: String(studentId),
       eventsCount: events.length,
     });
+
+    // --- Compute and broadcast real-time attention score ---
+    const io = getIO();
+    if (io && sessionIds.length > 0) {
+      const sixtySecondsAgo = new Date(Date.now() - 60_000);
+
+      for (const sessionId of sessionIds) {
+        const recentEvents = await ActivityEvent.find({
+          sessionId,
+          studentId,
+          startedAt: { $gte: sixtySecondsAgo },
+        })
+          .sort({ startedAt: -1 })
+          .limit(100)
+          .lean();
+
+        const score = calculateAttentionScore(recentEvents);
+        const label = getScoreLabel(score);
+        const color = getScoreColor(score);
+
+        io.to(String(sessionId)).emit('attention_update', {
+          studentId: String(studentId),
+          sapId: normalizedSapId,
+          score,
+          label,
+          color,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
 
     return sendSuccess(res, { inserted: insertedCount, sessions: sessionIds.length }, 'Activity batch ingested successfully', 201);
   } catch (err: any) {
@@ -269,5 +301,59 @@ export const getStudentActivitySummary = async (req: Request, res: Response) => 
 
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to fetch student activity summary', 500);
+  }
+};
+
+/**
+ * GET /api/activity/student/:studentId/attention?sessionId=xxx
+ * Returns the real-time attention score for a student in a given session.
+ * Protected: professor auth required.
+ */
+export const getStudentAttention = async (req: Request, res: Response) => {
+  try {
+    const { studentId } = req.params;
+    const { sessionId } = req.query;
+
+    if (!mongoose.isValidObjectId(studentId)) {
+      return sendError(res, 'Invalid studentId format', 400);
+    }
+
+    if (!sessionId || !mongoose.isValidObjectId(sessionId as string)) {
+      return sendError(res, 'sessionId query parameter is required and must be a valid ObjectId', 400);
+    }
+
+    // Verify professor owns this session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return sendError(res, 'Session not found', 404);
+    }
+    if (String(session.professorId) !== String((req as any).user.id)) {
+      return sendError(res, 'Not authorized for this session', 403);
+    }
+
+    const sixtySecondsAgo = new Date(Date.now() - 60_000);
+
+    const recentEvents = await ActivityEvent.find({
+      sessionId: new mongoose.Types.ObjectId(sessionId as string),
+      studentId: new mongoose.Types.ObjectId(studentId),
+      startedAt: { $gte: sixtySecondsAgo },
+    })
+      .sort({ startedAt: -1 })
+      .limit(100)
+      .lean();
+
+    const score = calculateAttentionScore(recentEvents);
+    const recentBlockedAttempts = recentEvents.filter((e) => e.status === 'BLOCKED').length;
+
+    return sendSuccess(res, {
+      score,
+      label: getScoreLabel(score),
+      color: getScoreColor(score),
+      recentBlockedAttempts,
+      recentEventsCount: recentEvents.length,
+      timestamp: new Date().toISOString(),
+    }, 'Attention score fetched successfully');
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to fetch attention score', 500);
   }
 };
