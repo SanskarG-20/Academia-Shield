@@ -6,6 +6,8 @@ import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
 import { getIO } from '../services/socketService';
 import { runAnomalyCheck } from '../services/anomalyService';
+import { aggregateSessionData } from '../utils/sessionAnalytics';
+import { generateSessionSummary } from '../utils/geminiSummary';
 
 const VALID_STATUSES = ['Upcoming', 'Active', 'Completed', 'Cancelled'];
 
@@ -199,6 +201,23 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
       }
     }
 
+    // When status changes to "Completed", generate AI summary asynchronously (non-blocking)
+    if (normalizedStatus === 'Completed') {
+      const sessionIdStr = session._id.toString();
+      aggregateSessionData(sessionIdStr)
+        .then((aggData) => generateSessionSummary(aggData))
+        .then(async (summary) => {
+          await Session.findByIdAndUpdate(sessionIdStr, {
+            aiSummary: summary,
+            summaryGeneratedAt: new Date(),
+          });
+          console.log(`[AI-Summary] Saved post-session summary for session ${sessionIdStr}`);
+        })
+        .catch((err) => {
+          console.error(`[AI-Summary] Error generating session summary for ${sessionIdStr}:`, err);
+        });
+    }
+
     return sendSuccess(res, session, 'Session status updated successfully');
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to update session status', 500);
@@ -311,5 +330,37 @@ export const checkSessionAnomalies = async (req: Request | any, res: Response) =
     return sendSuccess(res, result, 'Anomaly check completed successfully');
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to check anomalies', 500);
+  }
+};
+
+// @desc    Get AI-generated session summary
+// @route   GET /api/sessions/:id/summary
+export const getSessionSummary = async (req: Request | any, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return sendError(res, 'Invalid session ID format', 400);
+    }
+
+    const session = await Session.findById(id).select('professorId aiSummary summaryGeneratedAt');
+    if (!session) {
+      return sendError(res, 'Session not found', 404);
+    }
+
+    if (session.professorId.toString() !== req.user.id) {
+      return sendError(res, 'Not authorized to view this summary', 403);
+    }
+
+    return sendSuccess(
+      res,
+      {
+        aiSummary: session.aiSummary || null,
+        generatedAt: session.summaryGeneratedAt || null,
+      },
+      'Session summary fetched successfully'
+    );
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to fetch session summary', 500);
   }
 };

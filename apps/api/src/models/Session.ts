@@ -18,6 +18,8 @@ export interface ISession extends Document {
   ruleSetId: mongoose.Types.ObjectId;
   batchIds: mongoose.Types.ObjectId[];
   joinedStudentIds: mongoose.Types.ObjectId[];
+  aiSummary?: string;
+  summaryGeneratedAt?: Date;
 }
 
 const SessionSchema = new Schema<ISession>({
@@ -31,6 +33,8 @@ const SessionSchema = new Schema<ISession>({
   ruleSetId: { type: Schema.Types.ObjectId, ref: 'Rule' },
   batchIds: [{ type: Schema.Types.ObjectId, ref: 'Batch' }],
   joinedStudentIds: [{ type: Schema.Types.ObjectId, ref: 'Student' }],
+  aiSummary: { type: String },
+  summaryGeneratedAt: { type: Date },
 }, { timestamps: true });
 
 export default mongoose.model<ISession>('Session', SessionSchema);
