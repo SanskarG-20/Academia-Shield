@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { getStudentActivity, getStudentActivitySummary, getSessions } from '../lib/api';
 import { getSocket } from '../lib/socket';
-import { ActivityEvent, ActivitySummary, Session } from '../types';
+import { ActivityEvent, ActivitySummary, Session, AnomalyEvent } from '../types';
 
 interface StudentActivityModalProps {
   isOpen: boolean;
@@ -30,6 +30,7 @@ interface StudentActivityModalProps {
   };
   sessionId: string;
   sessionTitle: string;
+  anomalies?: AnomalyEvent[];
 }
 
 function formatDuration(ms: number): string {
@@ -55,7 +56,8 @@ export default function StudentActivityModal({
   onClose,
   student,
   sessionId,
-  sessionTitle
+  sessionTitle,
+  anomalies = []
 }: StudentActivityModalProps) {
   const [activeTab, setActiveTab] = useState<'timeline' | 'websites' | 'applications'>('timeline');
   const [isLoading, setIsLoading] = useState(true);
@@ -79,7 +81,16 @@ export default function StudentActivityModal({
   const scoreHistoryRef = useRef<{ score: number; time: number }[]>([]);
   const [sparklinePoints, setSparklinePoints] = useState<{ score: number; time: number }[]>([]);
 
-  // Listen for attention_update socket events while modal is open
+  // Anomaly Flags state
+  const [flags, setFlags] = useState<AnomalyEvent[]>(anomalies);
+
+  useEffect(() => {
+    if (anomalies) {
+      setFlags(anomalies);
+    }
+  }, [anomalies]);
+
+  // Listen for attention_update and anomaly_detected socket events while modal is open
   useEffect(() => {
     if (!isOpen) return;
     const socket = getSocket();
@@ -90,8 +101,19 @@ export default function StudentActivityModal({
       scoreHistoryRef.current = [...scoreHistoryRef.current.slice(-9), entry];
       setSparklinePoints([...scoreHistoryRef.current]);
     };
+
+    const onAnomaly = (data: any) => {
+      if (data?.studentId !== student.studentId) return;
+      setFlags((prev) => [data, ...prev]);
+    };
+
     socket.on('attention_update', onAttention);
-    return () => { socket.off('attention_update', onAttention); };
+    socket.on('anomaly_detected', onAnomaly);
+
+    return () => {
+      socket.off('attention_update', onAttention);
+      socket.off('anomaly_detected', onAnomaly);
+    };
   }, [isOpen, student.studentId, student.sapId]);
   const [webSortDesc, setWebSortDesc] = useState(true);
 
@@ -421,6 +443,52 @@ export default function StudentActivityModal({
                     </p>
                   </div>
                 </div>
+              </div>
+
+              {/* Flags Section */}
+              <div className="mb-6 p-4 bg-slate-50 dark:bg-dark-card rounded-xl border border-slate-100 dark:border-slate-800">
+                <div className="flex items-center justify-between mb-2.5">
+                  <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <ShieldAlert size={14} className="text-amber-500" />
+                    Flags
+                  </h3>
+                  {flags.length > 0 && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                      {flags.length} Flag{flags.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+
+                {flags.length > 0 ? (
+                  <div className="space-y-2">
+                    {flags.map((flag, idx) => (
+                      <div
+                        key={flag.id || idx}
+                        className={`px-3.5 py-2.5 rounded-lg bg-white dark:bg-slate-900/60 text-xs border-l-4 ${
+                          flag.severity === 'HIGH'
+                            ? 'border-rose-500 text-rose-700 dark:text-rose-300'
+                            : 'border-amber-500 text-amber-700 dark:text-amber-300'
+                        } flex items-center justify-between`}
+                      >
+                        <span className="font-semibold">
+                          ⚠️ {flag.severity} — {flag.blockedAttempts} attempts at{' '}
+                          {new Date(flag.detectedAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                          })}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          class avg: {flag.classAverage}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 py-0.5">
+                    ✅ No anomalies detected this session
+                  </p>
+                )}
               </div>
 
               {/* Tabs */}

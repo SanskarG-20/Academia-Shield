@@ -9,11 +9,14 @@ import {
   ShieldAlert,
   Activity,
   TrendingUp,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
-import { Session, LogEntry } from '../types';
+import { Session, LogEntry, AnomalyEvent } from '../types';
 import { getSocket, joinSession } from '../lib/socket';
-import { getLogs, getSessionLogs, getBatchById } from '../lib/api';
+import { getLogs, getSessionLogs, getBatchById, checkSessionAnomalies } from '../lib/api';
 import StudentActivityModal from './StudentActivityModal';
+import AnomalyAlert from './AnomalyAlert';
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface StudentTelemetry {
   studentId: string;
@@ -71,11 +74,21 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
 }) => {
   const [students, setStudents] = useState<Map<string, StudentTelemetry>>(new Map());
   const [attentionScores, setAttentionScores] = useState<Map<string, { score: number; label: string; color: string }>>(new Map());
+  const [flaggedStudents, setFlaggedStudents] = useState<Map<string, AnomalyEvent>>(new Map());
+  const [anomalyAlerts, setAnomalyAlerts] = useState<AnomalyEvent[]>([]);
+  const [isCheckingAnomalies, setIsCheckingAnomalies] = useState(false);
+  const [normalToast, setNormalToast] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<StudentTelemetry | null>(null);
   const [recentLogs, setRecentLogs] = useState<LogEntry[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
   const presenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [, forceUpdate] = useState(0); // trigger re-render for stale checks
+
+  // Reset anomaly state when session changes
+  useEffect(() => {
+    setFlaggedStudents(new Map());
+    setAnomalyAlerts([]);
+  }, [session._id]);
 
   // ── Load initial logs & enrolled batch students for this session
   const loadInitialLogs = useCallback(async () => {
@@ -273,6 +286,32 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
     };
     socket.on('attention_update', onAttentionUpdate);
 
+    // Statistical anomaly detected updates
+    const onAnomalyDetected = (data: any) => {
+      if (!data?.studentId) return;
+      const existing = students.get(data.studentId);
+      const studentName = existing?.studentName || data.studentName || `Student (${data.studentId.slice(-4)})`;
+      const anomalyItem: AnomalyEvent = {
+        id: `${data.studentId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        studentId: data.studentId,
+        studentName,
+        blockedAttempts: data.blockedAttempts,
+        classAverage: data.classAverage,
+        threshold: data.threshold,
+        detectedAt: data.detectedAt || new Date().toISOString(),
+        severity: data.severity || 'MEDIUM',
+      };
+
+      setFlaggedStudents((prev) => {
+        const updated = new Map(prev);
+        updated.set(data.studentId, anomalyItem);
+        return updated;
+      });
+
+      setAnomalyAlerts((prev) => [anomalyItem, ...prev]);
+    };
+    socket.on('anomaly_detected', onAnomalyDetected);
+
     if (socket.connected) setSocketConnected(true);
 
     // Periodically refresh presence status (stale check)
@@ -287,6 +326,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
       socket.off('student_telemetry', onStudentTelemetry);
       socket.off('live_log_update', onLiveLog);
       socket.off('attention_update', onAttentionUpdate);
+      socket.off('anomaly_detected', onAnomalyDetected);
       if (presenceTimerRef.current) clearInterval(presenceTimerRef.current);
     };
   }, [isOpen, session._id, loadInitialLogs]);
@@ -319,6 +359,21 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
   const timeLeftMs = Math.max(0, endTime.getTime() - now.getTime());
   const timeLeftMin = Math.ceil(timeLeftMs / 60_000);
 
+  const handleRunAnomalyCheck = async () => {
+    try {
+      setIsCheckingAnomalies(true);
+      const result = await checkSessionAnomalies(session._id);
+      if (!result.flagged || result.flagged.length === 0) {
+        setNormalToast(true);
+        setTimeout(() => setNormalToast(false), 3500);
+      }
+    } catch (err: any) {
+      console.error('Failed to run anomaly check:', err);
+    } finally {
+      setIsCheckingAnomalies(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col animate-fade-in">
       {/* Backdrop */}
@@ -343,6 +398,18 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
             </span>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleRunAnomalyCheck}
+              disabled={isCheckingAnomalies}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-300 dark:border-slate-700 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors disabled:opacity-50"
+            >
+              {isCheckingAnomalies ? (
+                <Loader2 size={13} className="animate-spin text-indigo-500" />
+              ) : (
+                <ShieldAlert size={13} className="text-amber-500" />
+              )}
+              Run Anomaly Check
+            </button>
             <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${
               socketConnected
                 ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
@@ -434,6 +501,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                   })
                   .map((student) => {
                     const presence = presenceConfig[student.status];
+                    const flag = flaggedStudents.get(student.studentId);
                     return (
                       <div
                         key={student.studentId}
@@ -444,7 +512,9 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                         className={`relative p-4 rounded-xl border transition-all duration-300 cursor-pointer hover:ring-2 hover:ring-indigo-500/50 ${
                           student.isViolation
                             ? 'border-rose-400 dark:border-rose-700 bg-rose-50/80 dark:bg-rose-950/30 shadow-rose-200/50 dark:shadow-rose-900/20 shadow-md animate-pulse-slow'
-                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:shadow-md'
+                            : flag
+                              ? 'border-amber-400/90 dark:border-amber-500/80 bg-amber-50/30 dark:bg-amber-950/20 shadow-sm'
+                              : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:shadow-md'
                         }`}
                       >
                         {/* Status + Name */}
@@ -501,9 +571,19 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                               </div>
                             );
                           })()}
-                          <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${presence.text} bg-slate-100 dark:bg-slate-700`}>
-                            {presence.label}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {flag && (
+                              <span
+                                title={`Flagged for unusual activity at ${new Date(flag.detectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`}
+                                className="inline-flex items-center justify-center p-1 rounded-full bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 border border-amber-300 dark:border-amber-700/60 cursor-help"
+                              >
+                                <AlertTriangle size={11} />
+                              </span>
+                            )}
+                            <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${presence.text} bg-slate-100 dark:bg-slate-700`}>
+                              {presence.label}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Active App */}
@@ -577,6 +657,37 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
           </div>
         </div>
       </div>
+      {/* Floating Anomaly Alerts Container */}
+      <AnomalyAlert
+        alerts={anomalyAlerts}
+        onDismiss={(id) =>
+          setAnomalyAlerts((prev) =>
+            prev.filter((a) => (a.id || `${a.studentId}-${a.detectedAt}`) !== id)
+          )
+        }
+        onViewStudent={(studentId) => {
+          const s = students.get(studentId) || {
+            studentId,
+            studentName: `Student (${studentId.slice(-4)})`,
+            sapId: '',
+            activeApp: 'Unknown',
+            status: 'online',
+            engagementScore: 50,
+            isViolation: true,
+            lastSeen: new Date().toISOString(),
+            lastActivityAt: Date.now(),
+          };
+          setSelectedStudent(s);
+        }}
+      />
+
+      {/* Brief "All students normal" toast */}
+      {normalToast && (
+        <div className="fixed top-6 right-6 z-[70] flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-500/60 bg-white/95 dark:bg-slate-900/95 shadow-xl text-xs font-semibold text-emerald-700 dark:text-emerald-300 animate-slide-in">
+          <span>✅ All students normal (no statistical anomalies detected)</span>
+        </div>
+      )}
+
       {selectedStudent && (
         <StudentActivityModal
           isOpen={!!selectedStudent}
@@ -584,6 +695,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
           student={selectedStudent}
           sessionId={session._id}
           sessionTitle={session.title}
+          anomalies={anomalyAlerts.filter((a) => a.studentId === selectedStudent.studentId)}
         />
       )}
     </div>

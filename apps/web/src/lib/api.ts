@@ -532,3 +532,20 @@ export async function getStudentActivitySummary(
     })
   );
 }
+
+// ANOMALIES
+export interface AnomalyCheckResponse {
+  flagged: string[];
+  classAverage: number;
+  threshold: number;
+}
+
+export async function checkSessionAnomalies(sessionId: string): Promise<AnomalyCheckResponse> {
+  return handleResponse<AnomalyCheckResponse>(
+    await fetch(`${BASE_URL}/api/sessions/${sessionId}/check-anomalies`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+  );
+}
+

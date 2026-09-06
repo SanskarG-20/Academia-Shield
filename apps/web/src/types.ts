@@ -113,3 +113,14 @@ export interface ActivitySummary {
   allowedDomains: number;
   uniqueApps: number;
 }
+
+export interface AnomalyEvent {
+  id?: string;
+  studentId: string;
+  studentName?: string;
+  blockedAttempts: number;
+  classAverage: number;
+  threshold?: number;
+  detectedAt: string;
+  severity: 'HIGH' | 'MEDIUM';
+}
