@@ -70,6 +70,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
   session,
 }) => {
   const [students, setStudents] = useState<Map<string, StudentTelemetry>>(new Map());
+  const [attentionScores, setAttentionScores] = useState<Map<string, { score: number; label: string; color: string }>>(new Map());
   const [selectedStudent, setSelectedStudent] = useState<StudentTelemetry | null>(null);
   const [recentLogs, setRecentLogs] = useState<LogEntry[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
@@ -257,6 +258,21 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
     socket.on('student_telemetry', onStudentTelemetry);
     socket.on('live_log_update', onLiveLog);
 
+    // Attention score updates
+    const onAttentionUpdate = (data: any) => {
+      if (!data?.studentId) return;
+      setAttentionScores((prev) => {
+        const updated = new Map(prev);
+        updated.set(data.studentId, {
+          score: data.score ?? 0,
+          label: data.label || 'Moderate',
+          color: data.color || '#f59e0b',
+        });
+        return updated;
+      });
+    };
+    socket.on('attention_update', onAttentionUpdate);
+
     if (socket.connected) setSocketConnected(true);
 
     // Periodically refresh presence status (stale check)
@@ -270,6 +286,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
       socket.off('student_joined', onStudentJoined);
       socket.off('student_telemetry', onStudentTelemetry);
       socket.off('live_log_update', onLiveLog);
+      socket.off('attention_update', onAttentionUpdate);
       if (presenceTimerRef.current) clearInterval(presenceTimerRef.current);
     };
   }, [isOpen, session._id, loadInitialLogs]);
@@ -448,6 +465,42 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                               )}
                             </div>
                           </div>
+
+                          {/* Attention Score */}
+                          {(() => {
+                            const attn = attentionScores.get(student.studentId);
+                            const score = attn?.score ?? null;
+                            const label = attn?.label || null;
+                            const color = attn?.color || '#94a3b8';
+                            const radius = 18;
+                            const circumference = 2 * Math.PI * radius;
+                            const progress = score !== null ? (score / 100) * circumference : 0;
+
+                            return (
+                              <div className="flex items-center gap-2 -mt-1 mb-1 ml-[52px]">
+                                <svg width={44} height={44} viewBox="0 0 44 44" className="shrink-0">
+                                  <circle cx={22} cy={22} r={radius} fill="none" stroke="currentColor" strokeWidth={3} className="text-slate-200 dark:text-slate-700" />
+                                  {score !== null && (
+                                    <circle cx={22} cy={22} r={radius} fill="none" stroke={color} strokeWidth={3} strokeDasharray={circumference} strokeDashoffset={circumference - progress} strokeLinecap="round" transform="rotate(-90 22 22)" className="transition-all duration-700" />
+                                  )}
+                                  <text x={22} y={22} textAnchor="middle" dominantBaseline="central" fill={score !== null ? color : '#94a3b8'} fontSize={score !== null ? 11 : 14} fontWeight="bold">
+                                    {score !== null ? score : '—'}
+                                  </text>
+                                </svg>
+                                {label && (
+                                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                                    label === 'Focused'
+                                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+                                      : label === 'Moderate'
+                                        ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                                        : 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 animate-pulse'
+                                  }`}>
+                                    {label}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${presence.text} bg-slate-100 dark:bg-slate-700`}>
                             {presence.label}
                           </span>

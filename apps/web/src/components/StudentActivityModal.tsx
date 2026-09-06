@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   X,
   Monitor,
@@ -73,6 +73,26 @@ export default function StudentActivityModal({
   const [webSearch, setWebSearch] = useState('');
   const [webStatusFilter, setWebStatusFilter] = useState<'All' | 'ALLOWED' | 'BLOCKED'>('All');
   const [webSortBy, setWebSortBy] = useState<'domain' | 'duration' | 'firstSeen' | 'lastSeen' | 'blocks'>('duration');
+
+  // Attention score state
+  const [attentionScore, setAttentionScore] = useState<{ score: number; label: string; color: string } | null>(null);
+  const scoreHistoryRef = useRef<{ score: number; time: number }[]>([]);
+  const [sparklinePoints, setSparklinePoints] = useState<{ score: number; time: number }[]>([]);
+
+  // Listen for attention_update socket events while modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const socket = getSocket();
+    const onAttention = (data: any) => {
+      if (data?.studentId !== student.studentId && data?.sapId !== student.sapId) return;
+      setAttentionScore({ score: data.score ?? 0, label: data.label || 'Moderate', color: data.color || '#f59e0b' });
+      const entry = { score: data.score ?? 0, time: Date.now() };
+      scoreHistoryRef.current = [...scoreHistoryRef.current.slice(-9), entry];
+      setSparklinePoints([...scoreHistoryRef.current]);
+    };
+    socket.on('attention_update', onAttention);
+    return () => { socket.off('attention_update', onAttention); };
+  }, [isOpen, student.studentId, student.sapId]);
   const [webSortDesc, setWebSortDesc] = useState(true);
 
   const loadData = async (offset = 0, isRefresh = false, targetSessionId = selectedSessionId) => {
@@ -290,6 +310,71 @@ export default function StudentActivityModal({
             </div>
           ) : (
             <>
+              {/* Attention Score Hero */}
+              <div className="mb-6 p-5 bg-slate-50 dark:bg-dark-card rounded-xl border border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center gap-6">
+                {/* Score ring (large) */}
+                <div className="flex flex-col items-center gap-1">
+                  {(() => {
+                    const score = attentionScore?.score ?? null;
+                    const color = attentionScore?.color || '#94a3b8';
+                    const radius = 36;
+                    const circumference = 2 * Math.PI * radius;
+                    const progress = score !== null ? (score / 100) * circumference : 0;
+                    return (
+                      <svg width={88} height={88} viewBox="0 0 88 88">
+                        <circle cx={44} cy={44} r={radius} fill="none" stroke="currentColor" strokeWidth={5} className="text-slate-200 dark:text-slate-700" />
+                        {score !== null && (
+                          <circle cx={44} cy={44} r={radius} fill="none" stroke={color} strokeWidth={5} strokeDasharray={circumference} strokeDashoffset={circumference - progress} strokeLinecap="round" transform="rotate(-90 44 44)" className="transition-all duration-700" />
+                        )}
+                        <text x={44} y={44} textAnchor="middle" dominantBaseline="central" fill={score !== null ? color : '#94a3b8'} fontSize={score !== null ? 22 : 28} fontWeight="bold">
+                          {score !== null ? score : '—'}
+                        </text>
+                      </svg>
+                    );
+                  })()}
+                </div>
+                {/* Label + subtitle */}
+                <div className="flex-1 text-center sm:text-left">
+                  <p className="text-lg font-bold" style={{ color: attentionScore?.color || '#94a3b8' }}>
+                    {attentionScore?.label || 'Awaiting data…'}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Based on last 60 seconds of activity
+                  </p>
+                </div>
+                {/* Sparkline */}
+                {sparklinePoints.length >= 2 && (
+                  <div className="shrink-0">
+                    <svg width={140} height={48} viewBox="0 0 140 48" className="overflow-visible">
+                      {/* Grid lines */}
+                      {[0, 25, 50, 75, 100].map((v) => (
+                        <line key={v} x1={0} y1={48 - (v / 100) * 44 - 2} x2={140} y2={48 - (v / 100) * 44 - 2} stroke="currentColor" strokeWidth={0.5} className="text-slate-200 dark:text-slate-700" />
+                      ))}
+                      {/* Line */}
+                      <polyline
+                        fill="none"
+                        stroke={attentionScore?.color || '#94a3b8'}
+                        strokeWidth={2}
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                        points={sparklinePoints.map((p, i) => {
+                          const x = (i / (sparklinePoints.length - 1)) * 136 + 2;
+                          const y = 48 - (p.score / 100) * 44 - 2;
+                          return `${x},${y}`;
+                        }).join(' ')}
+                      />
+                      {/* Dots */}
+                      {sparklinePoints.map((p, i) => {
+                        const x = (i / (sparklinePoints.length - 1)) * 136 + 2;
+                        const y = 48 - (p.score / 100) * 44 - 2;
+                        return <circle key={i} cx={x} cy={y} r={2.5} fill={attentionScore?.color || '#94a3b8'} />;
+                      })}
+                    </svg>
+                    <p className="text-[10px] text-center text-slate-400 mt-1">Last {sparklinePoints.length} readings</p>
+                  </div>
+                )}
+              </div>
+
               {/* Summary Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                 <div className="p-4 bg-slate-50 dark:bg-dark-card rounded-xl border border-slate-100 dark:border-slate-800 flex items-center gap-4">
