@@ -57,6 +57,14 @@ export const ingestActivityBatch = async (req: Request, res: Response) => {
       return sendError(res, 'Student not found', 404);
     }
 
+    // B1 FIX: When the caller authenticated via a user JWT (student browser),
+    // verify their identity matches the sapId they claim to be reporting for.
+    // Desktop agents using X-Agent-Secret don't populate req.user, so they pass through.
+    const authUser = (req as any).user;
+    if (authUser && authUser.role === 'student' && String(student._id) !== String(authUser.id)) {
+      return sendError(res, 'Not authorized to report activity for this student', 403);
+    }
+
     const studentId = student._id as mongoose.Types.ObjectId;
     
     const activeSessions = await findActiveSessionsForStudent(

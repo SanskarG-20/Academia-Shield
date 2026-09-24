@@ -190,6 +190,12 @@ export const reportAgentActivity = async (req: Request, res: Response) => {
       return sendError(res, 'No registered student matches this agent SAP ID', 404);
     }
 
+    // B1 FIX: Prevent identity spoofing when caller authenticates via user JWT.
+    const authUser = (req as any).user;
+    if (authUser && authUser.role === 'student' && String(student._id) !== String(authUser.id)) {
+      return sendError(res, 'Not authorized to report activity for this student', 403);
+    }
+
     const studentId = student._id as mongoose.Types.ObjectId;
     const studentName = student.name || agentName;
 
