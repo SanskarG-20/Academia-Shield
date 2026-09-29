@@ -8,6 +8,7 @@ managed marker comments. Preserves all existing system entries.
 import os
 import platform
 import sys
+import tempfile
 import urllib.parse
 import logging
 from typing import List
@@ -201,8 +202,20 @@ class HostsEnforcementEngine(EnforcementEngine):
             return False
 
         try:
-            with open(self._hosts_path, "w", encoding="utf-8") as f:
-                f.writelines(new_lines)
+            # A1 FIX: Atomic write — write to temp file, then os.replace.
+            hosts_dir = os.path.dirname(self._hosts_path)
+            fd, tmp_path = tempfile.mkstemp(dir=hosts_dir, suffix=".tmp", prefix="hosts_")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.writelines(new_lines)
+                os.replace(tmp_path, self._hosts_path)
+            except BaseException:
+                # Clean up temp file on failure
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
             LOGGER.info(
                 "Hosts updated safely. Managed domains=%s",
                 len(managed_block) - 2 if managed_block else 0,

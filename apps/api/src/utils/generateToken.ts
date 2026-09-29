@@ -1,7 +1,8 @@
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 
-export const generateToken = (id: string, role: string) => {
+// S2 FIX: Accept optional expiresIn so temp tokens can have a shorter lifespan.
+export const generateToken = (id: string, role: string, expiresIn: SignOptions['expiresIn'] = '30d') => {
   return jwt.sign({ id, role }, process.env.JWT_SECRET as string, {
-    expiresIn: '30d',
+    expiresIn,
   });
 };

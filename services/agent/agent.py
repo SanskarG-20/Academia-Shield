@@ -298,13 +298,38 @@ def sync_once(engine):
         return
 
     should_block = bool(remote_config.get("active", remote_config.get("blocking_active", False)))
+    
+    # A2 FIX: When using cached config, verify active sessions haven't passed ends_at
+    if should_block and remote_config.get("is_cached"):
+        active_sessions = remote_config.get("active_sessions", [])
+        if active_sessions:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            has_active = False
+            for s in active_sessions:
+                ends_at_str = s.get("ends_at")
+                if ends_at_str:
+                    try:
+                        clean_str = ends_at_str.replace("Z", "+00:00")
+                        dt = datetime.fromisoformat(clean_str)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        if dt > now:
+                            has_active = True
+                            break
+                    except Exception:
+                        pass
+            if not has_active:
+                LOGGER.warning("All sessions in cached config have expired (ends_at passed). Disabling blocking.")
+                should_block = False
+
     domains_to_block = sorted(
         set(
             str(d).strip().lower()
             for d in remote_config.get("blockedDomains", remote_config.get("domains", []))
             if str(d).strip()
         )
-    )
+    ) if should_block else []
 
     LOGGER.info(
         "Fetch response | active=%s sessions=%s domains=%s test_mode=%s engine=%s",

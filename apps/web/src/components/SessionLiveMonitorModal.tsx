@@ -82,6 +82,8 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
   const [recentLogs, setRecentLogs] = useState<LogEntry[]>([]);
   const [socketConnected, setSocketConnected] = useState(false);
   const presenceTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // F3 FIX: Ref that always holds the latest students Map for socket listeners.
+  const studentsRef = useRef<Map<string, StudentTelemetry>>(new Map());
   const [, forceUpdate] = useState(0); // trigger re-render for stale checks
 
   // Reset anomaly state when session changes
@@ -89,6 +91,18 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
     setFlaggedStudents(new Map());
     setAnomalyAlerts([]);
   }, [session._id]);
+
+  // F1 FIX: Stable callback for anomaly alert dismiss (prevents timer reset loop).
+  const handleDismissAlert = useCallback((id: string) => {
+    setAnomalyAlerts((prev) =>
+      prev.filter((a) => (a.id || `${a.studentId}-${a.detectedAt}`) !== id)
+    );
+  }, []);
+
+  // F3 FIX: Keep ref in sync with state for socket event handlers.
+  useEffect(() => {
+    studentsRef.current = students;
+  }, [students]);
 
   // ── Load initial logs & enrolled batch students for this session
   const loadInitialLogs = useCallback(async () => {
@@ -289,7 +303,8 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
     // Statistical anomaly detected updates
     const onAnomalyDetected = (data: any) => {
       if (!data?.studentId) return;
-      const existing = students.get(data.studentId);
+      // F3 FIX: Use ref to avoid stale closure over students Map.
+      const existing = studentsRef.current.get(data.studentId);
       const studentName = existing?.studentName || data.studentName || `Student (${data.studentId.slice(-4)})`;
       const anomalyItem: AnomalyEvent = {
         id: `${data.studentId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -539,7 +554,9 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                           {/* Attention Score */}
                           {(() => {
                             const attn = attentionScores.get(student.studentId);
-                            const score = attn?.score ?? null;
+                            // F2 FIX: Validate score is a finite number to prevent NaN in SVG attributes.
+                            const rawScore = attn?.score ?? null;
+                            const score = rawScore !== null && Number.isFinite(rawScore) ? rawScore : null;
                             const label = attn?.label || null;
                             const color = attn?.color || '#94a3b8';
                             const radius = 18;
@@ -660,11 +677,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
       {/* Floating Anomaly Alerts Container */}
       <AnomalyAlert
         alerts={anomalyAlerts}
-        onDismiss={(id) =>
-          setAnomalyAlerts((prev) =>
-            prev.filter((a) => (a.id || `${a.studentId}-${a.detectedAt}`) !== id)
-          )
-        }
+        onDismiss={handleDismissAlert}
         onViewStudent={(studentId) => {
           const s = students.get(studentId) || {
             studentId,

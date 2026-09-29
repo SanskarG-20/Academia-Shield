@@ -41,6 +41,40 @@ def _auth_headers(extra=None):
 # ---------------------------------------------------------------------------
 # Config Cache (offline fallback)
 # ---------------------------------------------------------------------------
+def _check_and_expire_cached_config(cached_cfg):
+    """If cached config has active sessions whose ends_at has passed, deactivate blocking."""
+    from datetime import datetime, timezone
+    active_sessions = cached_cfg.get("active_sessions", [])
+    if not active_sessions and not cached_cfg.get("active", False):
+        return
+
+    now = datetime.now(timezone.utc)
+    valid_sessions = []
+    for s in active_sessions:
+        ends_at_str = s.get("ends_at")
+        if not ends_at_str:
+            continue
+        try:
+            clean_str = ends_at_str.replace("Z", "+00:00")
+            ends_at = datetime.fromisoformat(clean_str)
+            if ends_at.tzinfo is None:
+                ends_at = ends_at.replace(tzinfo=timezone.utc)
+            if ends_at > now:
+                valid_sessions.append(s)
+        except Exception as err:
+            LOGGER.debug("Failed parsing session ends_at '%s': %s", ends_at_str, err)
+
+    if active_sessions and not valid_sessions:
+        LOGGER.warning(
+            "All sessions in cached config expired (ends_at passed). Deactivating blocking."
+        )
+        cached_cfg["active"] = False
+        cached_cfg["blocking_active"] = False
+        cached_cfg["blockedDomains"] = []
+        cached_cfg["domains"] = []
+        cached_cfg["active_sessions"] = []
+
+
 def load_cached_config():
     """Read the last-known-good config from the cache file."""
     import os
@@ -49,7 +83,11 @@ def load_cached_config():
 
     try:
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            cfg = json.load(f)
+            if isinstance(cfg, dict):
+                cfg["is_cached"] = True
+                _check_and_expire_cached_config(cfg)
+            return cfg
     except json.JSONDecodeError:
         LOGGER.warning("Cache file is corrupted; ignoring cached config.")
         return None

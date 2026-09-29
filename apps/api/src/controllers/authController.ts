@@ -47,11 +47,16 @@ const resolveOtpMode = (): 'email' | 'mock' | 'refused' => {
   const mode = (process.env.STUDENT_OTP_MODE || '').toLowerCase();
   if (mode === 'mock') return 'mock';
   if (process.env.ALLOW_INSECURE_OTP === 'true') return 'mock';
-  // If SMTP credentials are not configured, fall back to mock OTP so login works
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return 'mock';
   if (mode === 'email') return 'email';
-  if (!isProduction()) return 'mock';
-  return 'mock';
+  // S1 FIX: In production, refuse mock OTP unless explicitly opted in.
+  // In development, fall back to mock if SMTP is not configured.
+  if (isProduction()) {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return 'refused';
+    return 'email';
+  }
+  // Dev/test: fall back to mock when SMTP is not configured
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return 'mock';
+  return 'email';
 };
 
 const createOtpRecord = async (sapId: string, plainOtp: string) => {
@@ -253,7 +258,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
         {
           requiresProfileSetup: true,
           sapId,
-          token: generateToken(sapId, 'student_temp'),
+          token: generateToken(sapId, 'student_temp', '15m'),
         },
         'OTP verified'
       );

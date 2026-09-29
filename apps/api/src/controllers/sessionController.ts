@@ -133,6 +133,22 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
     session.status = normalizedStatus as any;
 
     if (normalizedStatus === 'Active') {
+      // B2 FIX: Block activation if another session is already active for any overlapping batch.
+      if (session.batchIds && session.batchIds.length > 0) {
+        const conflicting = await Session.findOne({
+          _id: { $ne: session._id },
+          status: 'Active',
+          batchIds: { $in: session.batchIds },
+        }).select('_id title');
+        if (conflicting) {
+          return sendError(
+            res,
+            `Cannot activate: session "${conflicting.title}" is already active for an overlapping batch`,
+            409
+          );
+        }
+      }
+
       const now = new Date();
 
       // Manual activation should always make the session active in the current window.
@@ -236,8 +252,9 @@ export const joinSession = async (req: Request | any, res: Response) => {
       return sendError(res, 'Session not found', 404);
     }
 
-    if (['Completed', 'Cancelled'].includes(String(session.status))) {
-      return sendError(res, `Cannot join a ${session.status.toLowerCase()} session`, 400);
+    // B3 FIX: Only allow joining Active sessions (not Upcoming).
+    if (String(session.status) !== 'Active') {
+      return sendError(res, `Cannot join a ${String(session.status).toLowerCase()} session. The session must be active.`, 400);
     }
 
     const student = await Student.findById(req.user.id).select('joinedBatches');
