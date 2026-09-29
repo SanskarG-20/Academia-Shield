@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Rule from '../models/Rule';
+import Session from '../models/Session';
 import { sendError, sendSuccess } from '../utils/apiResponse';
 
 export const createRule = async (req: Request | any, res: Response) => {
@@ -68,6 +69,16 @@ export const deleteRule = async (req: Request | any, res: Response) => {
 
     if (rule.professorId.toString() !== req.user.id) {
       return sendError(res, 'Not authorised to delete this rule', 403);
+    }
+
+    // B6 FIX: Check if rule is in use by an active session
+    const activeSession = await Session.findOne({ ruleSetId: rule._id, status: 'Active' }).select('title');
+    if (activeSession) {
+      return sendError(
+        res,
+        `Cannot delete rule: it is currently attached to active session "${activeSession.title}"`,
+        400
+      );
     }
 
     await rule.deleteOne();

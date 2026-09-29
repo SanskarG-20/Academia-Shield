@@ -80,6 +80,20 @@ export default function StudentActivityModal({
   const [attentionScore, setAttentionScore] = useState<{ score: number; label: string; color: string } | null>(null);
   const scoreHistoryRef = useRef<{ score: number; time: number }[]>([]);
   const [sparklinePoints, setSparklinePoints] = useState<{ score: number; time: number }[]>([]);
+  const activitiesCountRef = useRef(200);
+
+  // F4 FIX: Reset sparkline history and attention score when student changes or modal reopens
+  useEffect(() => {
+    scoreHistoryRef.current = [];
+    setSparklinePoints([]);
+    setAttentionScore(null);
+    activitiesCountRef.current = 200;
+  }, [student.studentId, isOpen]);
+
+  // Keep activitiesCountRef synced to current activities length for silent refreshes
+  useEffect(() => {
+    activitiesCountRef.current = Math.max(200, activities.length);
+  }, [activities.length]);
 
   // Anomaly Flags state
   const [flags, setFlags] = useState<AnomalyEvent[]>(anomalies);
@@ -122,8 +136,11 @@ export default function StudentActivityModal({
     if (!isRefresh) setError(null);
     try {
       const activeSessionParam = targetSessionId || undefined;
+      // F5 FIX: On background refresh, fetch current count instead of hardcoded 200
+      // so user pagination is preserved rather than collapsed.
+      const fetchLimit = isRefresh && offset === 0 ? activitiesCountRef.current : 200;
       const [acts, sum] = await Promise.all([
-        getStudentActivity(student.studentId, activeSessionParam, 200, offset),
+        getStudentActivity(student.studentId, activeSessionParam, fetchLimit, offset),
         getStudentActivitySummary(student.studentId, activeSessionParam)
       ]);
       if (offset === 0) {
@@ -132,8 +149,8 @@ export default function StudentActivityModal({
         setActivities(prev => [...prev, ...acts]);
       }
       setSummary(sum);
-      setHasMore(acts.length === 200);
-      setPage(Math.floor(offset / 200));
+      setHasMore(acts.length === fetchLimit);
+      setPage(Math.floor((offset + acts.length) / 200) - 1);
     } catch (err: any) {
       if (!isRefresh) setError(err.message || 'Failed to load activity');
     } finally {

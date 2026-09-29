@@ -4,7 +4,8 @@ import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
 
-router.post('/', protect, createLog);
+// B5 FIX: Restrict creating student activity logs to student role only.
+router.post('/', protect, authorize('student'), createLog);
 router.get('/', protect, getLogs);
 router.get('/:sessionId', protect, authorize('professor'), getSessionLogs);
 

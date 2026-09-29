@@ -32,14 +32,41 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     ruleSetId: ''
   });
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setFormError(null);
+
+    // F6 FIX: Client-side validation for dates, times, and required fields
+    if (!newSession.title.trim() || !newSession.course.trim()) {
+      setFormError('Please enter a session title and course name.');
+      return;
+    }
+
+    if (!newSession.date || !newSession.startTime || !newSession.endTime) {
+      setFormError('Please select a date, start time, and end time.');
+      return;
+    }
+
+    const start = new Date(`${newSession.date}T${newSession.startTime}`);
+    const end = new Date(`${newSession.date}T${newSession.endTime}`);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      setFormError('Invalid date or time format.');
+      return;
+    }
+
+    if (end <= start) {
+      setFormError('End time must be strictly after start time.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const formData = {
-        title: newSession.title,
-        course: newSession.course,
+        title: newSession.title.trim(),
+        course: newSession.course.trim(),
         type: newSession.type,
         startTime: `${newSession.date}T${newSession.startTime}`,
         endTime: `${newSession.date}T${newSession.endTime}`,
@@ -57,10 +84,11 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
         selectedBatchIds: [],
         ruleSetId: ''
       });
+      setFormError(null);
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert('Failed to create session');
+      setFormError(error?.message || 'Failed to create session');
     } finally {
       setIsLoading(false);
     }
@@ -81,6 +109,11 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       }
     >
       <form id="create-session-form" onSubmit={handleSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto px-1">
+        {formError && (
+          <div className="p-3 bg-rose-50 dark:bg-rose-900/30 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-semibold text-rose-600 dark:text-rose-400">
+            ⚠️ {formError}
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
             label="Session Title"

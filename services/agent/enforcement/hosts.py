@@ -73,21 +73,6 @@ def _read_hosts_lines(hosts_path):
         return f.readlines()
 
 
-def _ensure_backup_exists(hosts_lines):
-    """Create a one-time backup of the hosts file. Never overwrites."""
-    if os.path.exists(BACKUP_FILE):
-        return True
-
-    try:
-        with open(BACKUP_FILE, "w", encoding="utf-8") as f:
-            f.writelines(hosts_lines)
-        LOGGER.info("Backup created: %s", BACKUP_FILE)
-        return True
-    except Exception as err:
-        LOGGER.error("Could not create hosts backup; skipping update for safety: %s", err)
-        return False
-
-
 def _remove_managed_block(lines):
     """Strip the managed block (between markers) from hosts lines."""
     cleaned = []
@@ -111,6 +96,24 @@ def _remove_managed_block(lines):
         LOGGER.warning("Managed block start marker found without end marker; cleaned stale managed block.")
 
     return cleaned
+
+
+def _ensure_backup_exists(hosts_lines):
+    """Create a one-time backup of the pristine hosts file. Never overwrites."""
+    if os.path.exists(BACKUP_FILE):
+        return True
+
+    # A3 FIX: Strip any existing managed block before backing up so the backup is always pristine.
+    pristine_lines = _remove_managed_block(hosts_lines)
+
+    try:
+        with open(BACKUP_FILE, "w", encoding="utf-8") as f:
+            f.writelines(pristine_lines)
+        LOGGER.info("Backup created: %s", BACKUP_FILE)
+        return True
+    except Exception as err:
+        LOGGER.error("Could not create hosts backup; skipping update for safety: %s", err)
+        return False
 
 
 def _build_managed_block(domains):
