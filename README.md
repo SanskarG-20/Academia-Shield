@@ -1,354 +1,232 @@
 # Academia Shield
 
-🌐 **Live Web Application:** [https://academia-shield.vercel.app/](https://academia-shield.vercel.app/)
-
-**Academia Shield** is a classroom session and policy platform for educators. Professors define **rules** (domains and applications), organize **batches**, and run **sessions**. While a session is active, a lightweight **Python agent** on student machines polls the API and applies restrictions by updating the OS **hosts** file—giving you a practical demo of centralized policy with local enforcement.
-
----
-
-## Table of contents
-
-- [Repository layout](#repository-layout)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Tech stack](#tech-stack)
-- [Prerequisites](#prerequisites)
-- [Getting started](#getting-started)
-- [Configuration](#configuration)
-- [Running the stack](#running-the-stack)
-- [Demo account](#demo-account)
-- [Classroom / LAN setup](#classroom--lan-setup)
-- [Python agent](#python-agent)
-- [API overview](#api-overview)
-- [Scripts](#scripts)
-- [Troubleshooting](#troubleshooting)
-- [Limitations](#limitations)
-- [Roadmap](#roadmap)
-
----
-
-## Repository layout
-
-This repo is an **npm workspaces** monorepo:
-
-```text
-.
-├── apps/
-│   ├── web/                 # React + Vite + TypeScript SPA (`@academia-shield/web`)
-│   │   ├── public/          # Static assets (served as-is)
-│   │   ├── src/
-│   │   │   ├── components/  # UI + layout
-│   │   │   ├── pages/       # Route screens
-│   │   │   ├── lib/         # API client and shared clients
-│   │   │   ├── App.tsx
-│   │   │   ├── main.tsx     # Entry (mounted from index.html)
-│   │   │   ├── types.ts
-│   │   │   └── constants.ts # Mock / demo data used by some views
-│   │   ├── index.html
-│   │   └── vite.config.ts
-│   └── api/                 # Express + MongoDB API (`@academia-shield/api`)
-│       └── src/             # routes, controllers, models, middleware, scripts
-├── services/
-│   └── agent/               # Python hosts-file agent (stdlib)
-├── scripts/
-│   └── demo/                # Optional API walkthrough script (`demo_flow.py`)
-├── package.json             # Workspace root (orchestrates dev/build)
-└── README.md
-```
-
-Install once at the **repository root**; dependencies for `apps/web` and `apps/api` are linked via workspaces.
-
----
-
-## Features
-
-- **Professor dashboard** — sessions, rules, batches, logs, and live monitoring (role-gated in the UI).
-- **Real-time LiveLogs** — Instant, WebSocket-powered telemetry stream directly from student devices to the professor's dashboard.
-- **Student flows** — SAP ID + OTP email verification, profile and batch join paths.
-- **Automated Working Mode** — Students enter a session and their activity is automatically simulated in the background to demonstrate agent telemetry.
-- **Policy engine (server)** — active sessions within their time window drive merged block lists for the agent.
-- **Desktop agent** — cross-platform Python (stdlib), configurable poll interval, hosts-file apply/remove with a tagged block section, and real-time activity reporting back to the API.
-- **Optional AI** — session summaries use Google Gemini to analyze actual session logs and detect policy violations (set `VITE_GEMINI_API_KEY` in frontend environment).
-
----
+Academic integrity monitoring platform for institution-owned or explicitly consented devices. Enforces policy-driven application and DNS restrictions during verified batch sessions with full transparency, no stealth behavior, and privacy-minimized telemetry.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-  subgraph clients [Clients]
-    WEB[React SPA]
-    AGENT[Python agent]
-  end
-  subgraph server [Backend]
-    API[Express API :5000]
-  end
-  DB[(MongoDB)]
-  WEB -->|REST + JWT| API
-  AGENT -->|GET /api/agent/config| API
-  API --> DB
-  AGENT --> HOSTS[OS hosts file]
+```
+frontend/     → React + TypeScript SPA
+backend/      → FastAPI + PostgreSQL + SQLAlchemy + Alembic
+agent/        → Python local desktop agent (Windows)
+scripts/      → CI tooling
+docs/         → Documentation
 ```
 
-**Control plane:** the web app talks to the API with JWTs for authenticated routes, and receives real-time telemetry updates via **WebSocket (Socket.IO)**.  
-**Enforcement plane:** the agent calls **unauthenticated** `GET /api/agent/config` on a timer to pull policies, and posts activity back to `POST /api/agent/report` to log violations.
+## Quick Start (Development)
 
----
+### Prerequisites
 
-## Tech stack
+- Python 3.12+
+- Node.js 18+
+- PostgreSQL 15+
 
-| Layer | Technology |
-| --- | --- |
-| Frontend | React 19, TypeScript, Vite 6, React Router 7, Tailwind CSS (CDN), Lucide, Recharts |
-| Backend | Node.js, Express 4, TypeScript, Mongoose, Helmet, Morgan, CORS |
-| Database | MongoDB (e.g. Atlas) |
-| Auth | JWT (30-day expiry), bcrypt password hashing |
-| Real-time | Socket.IO (WebSockets) for instant LiveLogs streaming |
-| Agent | Python 3, standard library only |
-
----
-
-## Prerequisites
-
-- **Node.js** 18+ and npm
-- **MongoDB** connection string (Atlas or self-hosted)
-- **Python 3** (for `services/agent/` and optional `scripts/demo/`)
-- **Administrator / root** on student machines when running the agent (hosts file access)
-- For student OTP email: SMTP-capable credentials (see `apps/api/.env.example`)
-
----
-
-## Getting started
-
-### 1. Clone and install
+### Backend Setup
 
 ```bash
-git clone https://github.com/SanskarG-20/IPD---Academia-Shield.git
-cd IPD---Academia-Shield
+cd backend
+cp .env.example .env                  # Edit with your PostgreSQL credentials
+pip install -r requirements.txt
+alembic upgrade head                  # Run database migrations
+uvicorn app.main:app --reload         # Start on http://localhost:8000
+```
 
+### Frontend Setup
+
+```bash
+cd frontend
 npm install
+npm run dev                           # Start on http://localhost:5173
 ```
 
-### 2. Environment files
-
-Copy the API example and fill in real values:
+### Agent Setup & Single-File Installer
 
 ```bash
-cp apps/api/.env.example apps/api/.env
+# Build standalone Windows installer executable (dist/AcademiaShieldInstaller.exe)
+python agent/build_installer.py
+
+# Run installer GUI
+dist\AcademiaShieldInstaller.exe
+
+# Or run via CLI
+python -m agent.cli.main enroll --url http://localhost:8000 --email student@univ.edu --password <password>
+python -m agent.cli.main run
 ```
 
-For optional Gemini features in the UI, copy the web example (or create `apps/web/.env`):
+For complete packaging, code signing, and testing details, see [docs/WINDOWS_INSTALLER_GUIDE.md](docs/WINDOWS_INSTALLER_GUIDE.md).
+
+## Running Tests
 
 ```bash
-cp apps/web/.env.example apps/web/.env
-# set GEMINI_API_KEY=...
+# All test suites (backend + agent + security)
+python scripts/run_ci_tests.py
+
+# Individual suites
+python -m pytest backend/tests/ -v
+python -m pytest agent/tests/ -v
+python -m pytest backend/tests/test_e2e_security_reliability.py -v
 ```
 
-### 3. Seed demo data
+## Production Deployment
+
+### HTTPS / TLS Configuration
+
+> **All production deployments MUST use HTTPS.** Never expose the API over plain HTTP.
+
+1. **Reverse Proxy (Recommended)**: Deploy behind Nginx or Caddy with a valid TLS certificate (Let's Encrypt or institutional CA).
+2. **Environment Variables**:
+   ```
+   CORS_ORIGINS=https://yourdomain.edu
+   JWT_SECRET=<cryptographically-random-256-bit-key>
+   DATABASE_URL=postgresql://user:password@host:5432/academia_shield
+   ```
+3. **HSTS Header**: Configure `Strict-Transport-Security: max-age=31536000; includeSubDomains` in your reverse proxy.
+
+### PostgreSQL Backup & Recovery
 
 ```bash
-npm run seed
+# Daily automated backup
+pg_dump -U postgres -Fc academia_shield > /backups/academia_$(date +%Y%m%d).dump
+
+# Point-in-time restore
+pg_restore -U postgres -d academia_shield /backups/academia_20260812.dump
 ```
 
-You should see output confirming the demo professor, rules, and a sample session.
+- Enable WAL archiving for continuous backup.
+- Store backups encrypted and off-site.
+- Test restore procedures quarterly.
 
-### 4. Smoke-test the API
+### Database Migrations
 
 ```bash
-npm run dev:api
+cd backend
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Verify migration state
+alembic current
+
+# Generate new migration after model changes
+alembic revision --autogenerate -m "description"
 ```
 
-Open `http://localhost:5000/api/agent/config` — a typical idle response includes `blocking_active: false` and empty `domains` / `apps` arrays.
+### Structured Logging & Secret Redaction
 
----
+The backend uses `SecretRedactingFormatter` which automatically strips:
+- Passwords (`password=...`)
+- JWT tokens (`access_token=...`, `refresh_token=...`)
+- Authorization headers (`Authorization: Bearer ...`)
+- Database connection strings containing credentials
 
-## Configuration
+**Log configuration**:
+```
+LOG_LEVEL=INFO           # DEBUG, INFO, WARNING, ERROR
+```
 
-### Backend (`apps/api/.env`)
+Logs are written to stdout in structured format. In production, pipe to your log aggregator (ELK, Datadog, CloudWatch).
 
-| Variable | Purpose |
-| --- | --- |
-| `MONGO_URI` | MongoDB connection string |
-| `JWT_SECRET` | Secret for signing JWTs |
-| `PORT` | API port (default `5000`) |
-| `CLIENT_URL` | Allowed browser origin context (e.g. `http://localhost:3000`) |
-| `EMAIL_*` | Nodemailer transport for student OTP emails |
+## Agent Administration
 
-Never commit `.env`. Use `apps/api/.env.example` as the template.
+### Elevated DNS Configuration (Windows)
 
-### Frontend API base URL
+The DNS blocking engine runs on an unprivileged port (5353) by default. To redirect system DNS through the local resolver, an administrator must **explicitly** run:
 
-In **`apps/web/src/lib/api.ts`**, set `BASE_URL` to your API origin:
+```powershell
+# Apply local DNS resolver (requires elevated admin prompt)
+python -m agent.cli.main setup-dns
 
-- Local: `http://localhost:5000`
-- LAN / hotspot: `http://<professor-machine-ip>:5000`
+# Restore original DNS settings
+python -m agent.cli.main setup-dns --restore
 
-### Agent
+# Target a specific network adapter
+python -m agent.cli.main setup-dns --adapter "Wi-Fi"
+```
 
-In **`services/agent/agent.py`**, set `SERVER_IP` (and optionally `SERVER_PORT`) to match the machine running the API.
+**Important**: DNS settings are automatically restored when:
+- The batch session ends
+- The agent stops or logs out
+- The agent is uninstalled
+- The administrator runs `--restore`
 
----
-
-## Running the stack
-
-| Mode | Command | Notes |
-| --- | --- | --- |
-| API + Web (one terminal) | `npm run dev` | Runs API and Vite together via `concurrently` |
-| API only | `npm run dev:api` | Default `PORT` from `apps/api/.env` (5000) |
-| Web only | `npm run dev:web` | Vite — `apps/web/vite.config.ts`, port 3000 |
-| Agent | `python services/agent/agent.py` | Use `sudo` (macOS/Linux) or elevated shell (Windows) |
-
-Optional:
+### Agent Uninstall
 
 ```bash
-python scripts/demo/demo_flow.py
+python -m agent.cli.main logout       # Revoke tokens, wipe local credentials
+python -m agent.cli.main uninstall    # Remove all local agent data
 ```
 
----
+This removes:
+- Locally stored refresh tokens and device keys
+- SQLite telemetry queue
+- Cached policy data
+- DNS configuration backups (after restoring originals)
 
-## Demo account
+## Security Guarantees
 
-After `npm run seed`:
+### What the agent NEVER does
 
-- **Email:** `demo@professor.com`  
-- **Password:** `password123`
-- **Student SAP ID:** `600000001234`
-- **Student OTP (when `STUDENT_OTP_MODE=mock`):** `123456`
+- ❌ Keystroke logging or keylogging
+- ❌ Screenshot capture or screen recording
+- ❌ Browser content, history, or cookie inspection
+- ❌ Process memory dumps or command-line argument capture
+- ❌ File content scanning or window text extraction
+- ❌ Silent/stealth DNS, firewall, registry, or hosts-file modifications
+- ❌ Anti-debugging, anti-tamper, or hidden persistence
+- ❌ Enforcement outside a verified active batch session
 
----
+### What the agent DOES (with consent)
 
-## Single-machine demo flow
+- ✅ Monitors running process names (executable name only) during active sessions
+- ✅ Applies policy-driven DNS blocking for specific domains
+- ✅ Logs privacy-minimized telemetry: PID, executable name, domain, action, timestamp
+- ✅ Shows visible OS notifications before any enforcement action
+- ✅ Provides grace period before graceful process termination
+- ✅ Protects system-critical processes from termination (Explorer, security tools, accessibility tools)
+- ✅ Disables all enforcement when session expires or policy becomes invalid
 
-Use this mode to test professor, student, and agent together on one laptop.
+### Protected Processes (Never Terminated)
 
-1. Start backend + frontend:
+| Category | Examples |
+|----------|---------|
+| Windows Core | `explorer.exe`, `svchost.exe`, `csrss.exe`, `lsass.exe`, `winlogon.exe` |
+| Security Tools | `MsMpEng.exe`, `SecurityHealthService.exe` |
+| Accessibility | `narrator.exe`, `osk.exe`, `magnify.exe` |
+| Agent | `academia_shield_agent.exe`, `python.exe` |
 
-```bash
-npm run dev
-```
+## Privacy Notice
 
-2. Seed demo records:
+Academia Shield is designed for use on **institution-owned or explicitly consented devices only**.
 
-```bash
-npm run seed
-```
+### Data Collected During Active Sessions
 
-3. Open professor login in a normal browser window and sign in with `demo@professor.com / password123`.
-4. Open student login in an Incognito/Private window and sign in with SAP ID `600000001234` and OTP `123456`.
-5. Student joins class code `CE-SY-2024`.
-6. Professor creates or opens a session and clicks **Start** so status becomes `Active`.
-7. Run the local agent:
+| Data Point | Purpose | Retention |
+|-----------|---------|-----------|
+| Executable name | Policy rule matching | Session duration + audit log |
+| Domain name (DNS) | DNS policy enforcement | Session duration + audit log |
+| PID | Process identification | Not persisted after session |
+| Timestamp | Event ordering | Audit log retention policy |
+| Device ID | Device enrollment | Until device unenrolled |
 
-```bash
-python services/agent/agent.py
-```
+### Data NOT Collected
 
-8. Open `youtube.com` or `instagram.com` to verify block, then end session to verify unblock.
+- No browsing history, URLs, or page content
+- No file names, file contents, or document metadata
+- No keystrokes, clipboard content, or input data
+- No screenshots, camera, or microphone data
+- No personal communications or messaging content
+- No process command-line arguments or environment variables
 
-Notes:
-- `TEST_MODE=true` in `apps/api/.env` allows local agent polling without strict device allowlisting.
-- Use separate browser contexts (normal + incognito) to keep professor and student JWT/localStorage independent.
+### Student Rights
 
----
+- Students can view their own telemetry events
+- Students can unenroll their device at any time
+- Students can request data deletion
+- All monitoring is transparently disclosed before enrollment
+- No enforcement occurs outside scheduled batch sessions
 
-## Classroom / LAN setup
+## API Documentation
 
-1. On the professor machine, note the hotspot or LAN IPv4 address (Windows: `ipconfig`; macOS: `ifconfig` / `ipconfig getifaddr en0`).
-2. Set **`apps/web/src/lib/api.ts`** → `BASE_URL` to `http://<that-ip>:5000`.
-3. Set **`services/agent/agent.py`** → `SERVER_IP` to the same IP.
-4. Ensure the API is reachable from student devices (firewall rules as needed).
-
----
-
-## Python agent
-
-- **Poll interval:** 8 seconds by default (`POLL_INTERVAL` in `agent.py`).
-- **Cache:** writes `last_config.json` when the server is unreachable so the last known policy can still be applied conservatively (see agent logs).
-- **Reporting:** Reports back to the API (`POST /api/agent/report`) when domains are blocked or unblocked, populating the professor's real-time LiveLogs.
-- **Hosts file:** uses a marker comment (e.g. `# ACADEMIA_SHIELD_START`) so blocks can be removed cleanly when sessions end.
-
----
-
-## API overview
-
-Base path: `/api`
-
-| Area | Prefix | Auth |
-| --- | --- | --- |
-| Authentication | `/api/auth` | Mixed (login vs OTP) |
-| Batches | `/api/batches` | JWT |
-| Sessions | `/api/sessions` | JWT |
-| Rules | `/api/rules` | JWT |
-| Logs | `/api/logs` | JWT |
-| Agent config | `/api/agent` | **None** (by design; protect at network layer if needed) |
-
-Health: `GET /` on the API root returns a short status string.
-
----
-
-## Scripts
-
-### Workspace root (`package.json`)
-
-| Script | Description |
-| --- | --- |
-| `npm run dev` | API + web in parallel |
-| `npm run dev:api` | API only (`@academia-shield/api`) |
-| `npm run dev:web` | Vite dev server (`@academia-shield/web`) |
-| `npm run build` | Build web, then compile API to `apps/api/dist/` |
-| `npm run build:web` / `npm run build:api` | Individual package builds |
-| `npm run preview` | Preview Vite production build |
-| `npm run seed` | Run `seedDemo.ts` in the API package |
-| `npm run start:api` | Run compiled API (`node apps/api/dist/server.js` after `build:api`) |
-
-### Per package
-
-| Location | Typical commands |
-| --- | --- |
-| `apps/web` | `npm run dev`, `npm run build`, `npm run preview` |
-| `apps/api` | `npm run dev`, `npm run build`, `npm start`, `npm run seed` |
-
----
-
-## Troubleshooting
-
-| Symptom | What to check |
-| --- | --- |
-| Agent `PermissionError` | Run elevated (Administrator / `sudo`). |
-| Agent cannot reach server | `SERVER_IP`, firewall, and that the API is bound to `0.0.0.0` if accessing from other hosts. |
-| Browser errors / failed fetches | `BASE_URL` in `apps/web/src/lib/api.ts` must match the API URL students and professors use. |
-| MongoDB errors | `MONGO_URI`, Atlas IP allowlist, and cluster user permissions. |
-| Port already in use | Change `PORT` in `apps/api/.env` and update clients accordingly. |
-| Student OTP email fails in local demo | Set `STUDENT_OTP_MODE=mock` and use `MOCK_STUDENT_OTP` from `apps/api/.env`. |
-| Professor/student sessions collide | Use normal window for professor and Incognito/Private window for student. |
-| Session marked Active but agent shows standby | Ensure the session was started from UI and check `GET /api/agent/config` for `active: true`. |
-| Blocked domain still opens | Flush DNS (`ipconfig /flushdns` on Windows) and retry in a fresh tab/private window. |
-
----
-
-## Limitations
-
-- **Hosts-based blocking** requires local admin rights and can be reversed by a user with sufficient privileges.
-- **Polling latency** means enforcement updates are not instantaneous compared to a push model.
-- **Agent endpoint** is public; treat network placement and segmentation accordingly for production.
-
----
-
-## Roadmap
-
-- DNS-level enforcement to reduce reliance on local admin.
-- Browser extension and stronger application-level controls.
-- Push-based agent updates to replace polling.
-- Deeper analytics and optional AI-assisted anomaly detection.
-
----
-
-## Contributing
-
-Issues and pull requests are welcome. Please keep changes focused, match existing code style, and avoid committing secrets or local `.env` files.
-
----
-
-## License
-
-The workspace root `package.json` is **private**. Add a root `LICENSE` file if you intend to open-source the project.
+When the backend is running, interactive API docs are available at:
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+- **Health Check**: `GET /api/v1/health`

@@ -1,0 +1,9 @@
+{
+  "platform": "windows",
+  "version": "2.3.0",
+  "download_url": "http://127.0.0.1:5000/installers/windows/AcademiaShieldInstaller.exe",
+  "sha256": "8b9ec52be0a9d3cfa9020016a8d51ed7de0e3d5741209844e8019f964dd9bdd3",
+  "release_date": "2026-08-23T06:01:24Z",
+  "min_os_version": "Windows 10 Build 19041+ (x64 / ARM64)",
+  "signature": "d32baf7879fefdf4cc54a6ba5d934f09d917f585dd3df07eb86ecaaf1fac259f8dd2eb93f5e031056613ea0fb323022f74b33046e7ddd803cc7c86565a915806"
+}

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Product Id="*" 
+             Name="Academia Shield Local Agent" 
+             Language="1033" 
+             Version="2.3.0.0" 
+             Manufacturer="Academia Shield Inc." 
+             UpgradeCode="7B583E34-4C2E-4D78-9B21-8898F617066C">
+        
+        <Package InstallerVersion="500" 
+                 Compressed="yes" 
+                 InstallScope="perMachine" 
+                 Comments="Academia Shield Secure Endpoint Agent" />
+
+        <MajorUpgrade DowngradeErrorMessage="A newer version of Academia Shield Agent is already installed." />
+        <MediaTemplate EmbedCab="yes" />
+
+        <Feature Id="ProductFeature" Title="Academia Shield Agent" Level="1">
+            <ComponentGroupRef Id="ProductComponents" />
+        </Feature>
+    </Product>
+
+    <Fragment>
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="ProgramFilesFolder">
+                <Directory Id="INSTALLFOLDER" Name="AcademiaShield" />
+            </Directory>
+        </Directory>
+    </Fragment>
+
+    <Fragment>
+        <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+            <Component Id="AgentExecutable" Guid="D2A691F5-30E9-4B52-8703-4D90B75D4EFA">
+                <File Id="AcademiaShieldAgentEXE" 
+                      Source="$(var.DistDir)\AcademiaShieldAgent.exe" 
+                      KeyPath="yes" 
+                      Checksum="yes" />
+                
+                <!-- Explicit Windows Service Registration with User/Admin Consent -->
+                <ServiceInstall Id="ServiceInstaller"
+                                Type="ownProcess"
+                                Name="AcademiaShieldService"
+                                DisplayName="Academia Shield Local Agent Service"
+                                Description="Provides endpoint integrity, DNS security, and application policy management for verified academic sessions."
+                                Start="auto"
+                                Account="LocalSystem"
+                                ErrorControl="normal" />
+
+                <ServiceControl Id="ServiceControl_StartStop"
+                                Name="AcademiaShieldService"
+                                Stop="both"
+                                Remove="uninstall"
+                                Wait="yes" />
+            </Component>
+        </ComponentGroup>
+    </Fragment>
+</Wix>

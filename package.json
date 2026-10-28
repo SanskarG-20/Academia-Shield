@@ -1,21 +1,23 @@
 {
   "name": "academia-shield",
   "private": true,
-  "description": "Monorepo: Academia Shield web app, API, and desktop agent tooling",
+  "description": "Monorepo: Academia Shield web app, production FastAPI backend, and desktop agent tooling",
   "workspaces": [
-    "apps/*"
+    "frontend"
   ],
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,green \"npm run dev -w @academia-shield/api\" \"npm run dev -w @academia-shield/web\"",
+    "dev": "concurrently -n api,web,agent -c blue,green,yellow \"python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload\" \"npm run dev -w @academia-shield/web\" \"python agent/agent.py\"",
+    "dev:full": "concurrently -n api,web,agent -c blue,green,yellow \"python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload\" \"npm run dev -w @academia-shield/web\" \"python agent/agent.py\"",
     "dev:web": "npm run dev -w @academia-shield/web",
-    "dev:api": "npm run dev -w @academia-shield/api",
-    "build": "npm run build -w @academia-shield/web && npm run build -w @academia-shield/api",
+    "dev:api": "python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload",
+    "dev:agent": "python agent/agent.py",
+    "build": "npm run build -w @academia-shield/web",
     "build:web": "npm run build -w @academia-shield/web",
-    "build:api": "npm run build -w @academia-shield/api",
-    "preview": "npm run preview -w @academia-shield/web",
-    "seed": "npm run seed -w @academia-shield/api",
-    "start": "node apps/api/dist/server.js",
-    "start:api": "npm run start -w @academia-shield/api"
+    "test": "python scripts/run_ci_tests.py",
+    "test:api": "pytest backend/tests",
+    "test:agent": "pytest agent/tests",
+    "typecheck": "npm run typecheck -w @academia-shield/web",
+    "preview": "npm run preview -w @academia-shield/web"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

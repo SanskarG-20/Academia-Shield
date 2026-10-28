@@ -1,0 +1,140 @@
+{
+  "model_version": "1.1.0",
+  "created_at": "2026-09-04T15:15:52.817805+00:00",
+  "training_sample_count": 8,
+  "feature_list": [
+    "academic_active_seconds",
+    "non_academic_active_seconds",
+    "idle_seconds",
+    "application_switch_count",
+    "unauthorized_application_attempt_count",
+    "blocked_website_attempt_count",
+    "policy_violation_count",
+    "session_elapsed_seconds",
+    "academic_activity_ratio",
+    "non_academic_activity_ratio",
+    "idle_ratio",
+    "application_switches_per_minute",
+    "blocked_attempts_per_minute",
+    "violation_rate"
+  ],
+  "label_distribution": {
+    "high": 3,
+    "low": 2,
+    "medium": 3
+  },
+  "train_test_split_configuration": {
+    "test_size": 0.25,
+    "random_state": 42,
+    "train_samples": 5,
+    "test_samples": 3,
+    "stratified": true
+  },
+  "package_versions": {
+    "scikit-learn": "1.8.0",
+    "pandas": "2.3.3",
+    "joblib": "1.5.3",
+    "numpy": "2.3.5"
+  },
+  "accuracy": 1.0,
+  "precision_by_class": {
+    "low": 1.0,
+    "medium": 1.0,
+    "high": 1.0
+  },
+  "recall_by_class": {
+    "low": 1.0,
+    "medium": 1.0,
+    "high": 1.0
+  },
+  "f1_by_class": {
+    "low": 1.0,
+    "medium": 1.0,
+    "high": 1.0
+  },
+  "macro_f1": 1.0,
+  "confusion_matrix": [
+    [
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0
+    ],
+    [
+      0,
+      0,
+      1
+    ]
+  ],
+  "feature_importances": {
+    "academic_active_seconds": 0.18823,
+    "idle_ratio": 0.16657,
+    "academic_activity_ratio": 0.14367,
+    "idle_seconds": 0.13631,
+    "unauthorized_application_attempt_count": 0.07828,
+    "violation_rate": 0.07641,
+    "blocked_attempts_per_minute": 0.07416,
+    "policy_violation_count": 0.0697,
+    "blocked_website_attempt_count": 0.06667,
+    "non_academic_active_seconds": 0.0,
+    "application_switch_count": 0.0,
+    "session_elapsed_seconds": 0.0,
+    "non_academic_activity_ratio": 0.0,
+    "application_switches_per_minute": 0.0
+  },
+  "baseline_metrics": {
+    "accuracy": 0.3333,
+    "macro_f1": 0.1667,
+    "precision_by_class": {
+      "low": 0.0,
+      "medium": 0.0,
+      "high": 0.3333
+    },
+    "recall_by_class": {
+      "low": 0.0,
+      "medium": 0.0,
+      "high": 1.0
+    },
+    "f1_by_class": {
+      "low": 0.0,
+      "medium": 0.0,
+      "high": 0.5
+    },
+    "support_by_class": {
+      "low": 1,
+      "medium": 1,
+      "high": 1
+    },
+    "confusion_matrix": [
+      [
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        1
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ],
+    "classes_evaluated": [
+      "low",
+      "medium",
+      "high"
+    ],
+    "strategy": "most_frequent"
+  },
+  "dataset_manifest_hash": "58fe1cf123eefc994833ae76bef35727d52406c782b450393f747b0dfdb6e516",
+  "approved_by": "356a11ca-0883-4cce-abe4-e9acf424de07",
+  "model_status": "approved",
+  "approved_at": "2026-09-04T15:15:53.010495+00:00"
+}
