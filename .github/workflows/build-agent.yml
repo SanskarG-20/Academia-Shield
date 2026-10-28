@@ -39,6 +39,10 @@ jobs:
             --hidden-import comms ^
             --hidden-import comms.http_client ^
             --hidden-import comms.socket_client ^
+            --hidden-import credentials ^
+            --hidden-import enroll ^
+            --hidden-import keyring.backends.Windows ^
+            --hidden-import enforcement.apps ^
             --hidden-import enforcement ^
             --hidden-import enforcement.hosts ^
             --hidden-import enforcement.dns ^
@@ -75,13 +79,13 @@ jobs:
             **Built at:** ${{ github.event.head_commit.timestamp }}
 
             ### Download
-            Download `AcademiaShield.exe` below, then run it in an **Administrator** terminal:
+            Download `AcademiaShield.exe` below, then install it in an **Administrator** terminal:
             ```
-            AcademiaShield.exe
+            AcademiaShield.exe --install
             ```
-            Set your SAP ID before running:
+            Sign in as a student, generate a one-time enrollment code on the student sessions page, then enter it locally:
             ```
-            set STUDENT_SAP_ID=YOUR_SAP_ID
+            AcademiaShield.exe enroll
             AcademiaShield.exe
             ```
 

@@ -141,6 +141,13 @@ class BaseActivityTracker(ABC):
         """Update the set of currently blocked domains."""
         self._blocked_domains = {d.lower() for d in (domains or [])}
 
+    def clear(self):
+        """Discard local events when no authorized session is active."""
+        with self._lock:
+            self._buffer.clear()
+            self._current_event = None
+            self._blocked_domains.clear()
+
     def flush(self):
         """Return all buffered events and clear the buffer."""
         with self._lock:

@@ -12,6 +12,7 @@ Requires: python-socketio[client] (listed in requirements.txt)
 
 import logging
 import threading
+from credentials import load_credential
 from typing import Callable, Optional
 
 LOGGER = logging.getLogger("academia_shield_agent")
@@ -97,8 +98,7 @@ class AgentSocketClient:
         def connect():
             self._connected = True
             LOGGER.info("[Socket] Connected to %s", self._server_url)
-            # Join the agents room
-            sio.emit("join_agent", self._agent_id)
+            sio.emit("join_agent")
 
         @sio.event
         def disconnect():
@@ -137,7 +137,10 @@ class AgentSocketClient:
 
         # Connect (blocking — runs in background thread)
         try:
-            sio.connect(self._server_url, transports=["websocket", "polling"])
+            credential = load_credential()
+            if not credential:
+                return
+            sio.connect(self._server_url, auth={"token": f"Device {credential}"}, transports=["websocket", "polling"])
             sio.wait()  # blocks until disconnected
         except Exception as err:
             LOGGER.warning("[Socket] Failed to connect to %s: %s", self._server_url, err)

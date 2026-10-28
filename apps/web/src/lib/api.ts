@@ -425,25 +425,6 @@ export async function deleteSession(id: string): Promise<void> {
 }
 
 // LOGS
-export async function createLog(payload: {
-  sessionId: string;
-  type: 'USAGE' | 'EVENT' | 'ANOMALY';
-  resource?: string;
-  details?: string;
-  duration?: number;
-  engagementScore?: number;
-  isViolation?: boolean;
-}) {
-  const log = await handleResponse<any>(
-    await fetch(`${BASE_URL}/api/logs`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify(payload),
-    })
-  );
-  return normalizeLog(log);
-}
-
 export async function getLogs(sessionId?: string): Promise<LogEntry[]> {
   const suffix = sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '';
   const logs = await handleResponse<any[]>(
@@ -465,44 +446,32 @@ export async function getSessionLogs(sessionId: string): Promise<LogEntry[]> {
 
 // AGENT CONFIG
 export async function getAgentConfig() {
-  // Sends the logged-in user's token: /api/agent/* is authenticated once
-  // AGENT_SHARED_SECRET is set on the API, and the browser can't hold that secret.
+  // Browser overview; device policy is only available to authenticated local agents.
   const config = await handleResponse<any>(
-    await fetch(`${BASE_URL}/api/agent/config`, {
+    await fetch(`${BASE_URL}/api/agent/overview`, {
       headers: authHeaders(),
     })
   );
   return normalizeAgentConfig(config);
 }
 
-export async function reportAgentHeartbeat(payload: {
-  sapId: string;
-  activeApp: string;
-  status: 'online' | 'idle' | 'offline';
-}) {
-  return handleResponse<any>(
-    await fetch(`${BASE_URL}/api/agent/heartbeat`, {
+export async function issueEnrollmentClaim(): Promise<{ claim: string; expiresAt: string }> {
+  return handleResponse(
+    await fetch(`${BASE_URL}/api/agent/enrollment-claims`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify(payload),
     })
   );
 }
 
-// LOCAL AGENT
-export async function pairLocalAgent(sapId: string) {
-  try {
-    const res = await fetch('http://127.0.0.1:49494/identify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sapId }),
-    });
-    return await res.json();
-  } catch (error) {
-    // Silently ignore if local agent is not running
-    console.debug("Local desktop agent not running or unreachable.");
-    return null;
-  }
+export type EnrolledDevice = { _id: string; createdAt: string; lastSeenAt?: string; revokedAt?: string };
+
+export async function getEnrolledDevices(): Promise<EnrolledDevice[]> {
+  return handleResponse(await fetch(`${BASE_URL}/api/agent/devices`, { headers: authHeaders() }));
+}
+
+export async function revokeEnrolledDevice(id: string): Promise<void> {
+  await handleResponse(await fetch(`${BASE_URL}/api/agent/devices/${id}`, { method: 'DELETE', headers: authHeaders() }));
 }
 
 // STUDENT ACTIVITY

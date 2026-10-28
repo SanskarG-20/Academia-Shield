@@ -21,14 +21,11 @@ import {
   deleteSession,
   getAgentConfig,
   getBatches,
-  getMe,
   getMyBatches,
   getRules,
   getSessions,
   getLogs,
   joinBatch,
-  reportAgentHeartbeat,
-  pairLocalAgent,
   updateSessionStatus,
 } from '../lib/api';
 import { getSocket } from '../lib/socket';
@@ -42,7 +39,6 @@ export const Sessions: React.FC = () => {
   const [rules, setRules] = useState<RuleSet[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [agentConfig, setAgentConfig] = useState<any>(null);
-  const [studentSapId, setStudentSapId] = useState('');
   const [loading, setLoading] = useState(true);
   const [summaryModalSession, setSummaryModalSession] = useState<Session | null>(null);
   const [error, setError] = useState('');
@@ -134,38 +130,6 @@ export const Sessions: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [isStudent]);
-
-  // ─── Student Presence Heartbeat ─────────────────────────────────────────────
-  // When a student is on this page and has active sessions, send periodic heartbeats
-  // so the professor's Live Command Center shows them as Online.
-  useEffect(() => {
-    if (!isStudent) return;
-
-    // Fetch sapId once for heartbeats
-    getMe().then(profile => {
-      setStudentSapId(profile.sapId || '');
-      if (profile.sapId) pairLocalAgent(profile.sapId);
-    }).catch(() => {});
-  }, [isStudent]);
-
-  useEffect(() => {
-    if (!isStudent || !studentSapId) return;
-
-    const hasActiveSessions = sessions.some(
-      s => String(s.status).toLowerCase() === 'active'
-    );
-    if (!hasActiveSessions) return;
-
-    // Send heartbeat immediately
-    reportAgentHeartbeat({ sapId: studentSapId, activeApp: 'Sessions Page', status: 'online' }).catch(() => null);
-
-    // Keep sending every 15 seconds
-    const heartbeatInterval = setInterval(() => {
-      reportAgentHeartbeat({ sapId: studentSapId, activeApp: 'Sessions Page', status: 'online' }).catch(() => null);
-    }, 15_000);
-
-    return () => clearInterval(heartbeatInterval);
-  }, [isStudent, studentSapId, sessions]);
 
   useEffect(() => {
     const timeInterval = setInterval(() => setCurrentTime(new Date()), 5000);
@@ -356,12 +320,12 @@ ${logsText}
                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
                   </span>
                   <p className="text-rose-950 dark:text-rose-100 font-bold text-sm tracking-wide">
-                    BLOCKING IN PROGRESS — {agentConfig.active_sessions?.[0]?.title || 'Active Session'}
+                    SESSION POLICY ACTIVE — {agentConfig.active_sessions?.[0]?.title || 'Active Session'}
                   </p>
                 </div>
                 <p className="text-rose-700 dark:text-rose-300 text-xs mt-1 font-medium">
                   <span className="inline-block font-semibold bg-rose-100 dark:bg-rose-900/60 px-2 py-0.5 rounded-full text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-800 mr-1.5">
-                    {agentConfig.domains.length} domains blocked
+                    {agentConfig.domains.length} domains in policy
                   </span>
                   Ends at{' '}
                   {agentConfig.active_sessions?.[0]?.ends_at

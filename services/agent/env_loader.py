@@ -7,7 +7,7 @@ sees a fully populated os.environ.
 Lookup order (first file that defines a key wins, and real environment
 variables always win over file values):
 
-    1. The directory containing the running .exe   (frozen/installed agent)
+    1. Stable ProgramData installation directory (frozen Windows agent)
     2. The directory containing this source file   (development)
     3. The PyInstaller extraction dir, sys._MEIPASS (bundled .env.production)
 
@@ -34,10 +34,13 @@ def _candidate_dirs():
     """Directories to search for .env files, in priority order."""
     dirs = []
 
-    # 1. Next to the executable — this is where the installer writes
-    #    .env.production (C:\ProgramData\AcademiaShield\).
+    # A downloaded executable must not trust a configuration planted next to
+    # it in Downloads. Frozen Windows builds use only stable ProgramData state.
     if getattr(sys, "frozen", False):
-        dirs.append(os.path.dirname(os.path.abspath(sys.executable)))
+        if sys.platform == "win32":
+            dirs.append(os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "AcademiaShield"))
+        else:
+            dirs.append(os.path.dirname(os.path.abspath(sys.executable)))
 
     # 2. Next to this source file (development runs).
     dirs.append(os.path.dirname(os.path.abspath(__file__)))

@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import Session from '../models/Session';
 import Rule from '../models/Rule';
+import Batch from '../models/Batch';
+import { reconcileSessions } from '../services/sessionClock';
 import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
 import { getIO } from '../services/socketService';
@@ -13,7 +15,7 @@ const VALID_STATUSES = ['Upcoming', 'Active', 'Completed', 'Cancelled'];
 
 const canStudentAccessSession = (session: any, joinedBatchIds: string[]) => {
   if (!session.batchIds || session.batchIds.length === 0) {
-    return true;
+    return false;
   }
 
   const joinedSet = new Set(joinedBatchIds);
@@ -26,14 +28,22 @@ export const createSession = async (req: Request | any, res: Response) => {
   try {
     const { title, course, type, startTime, endTime, ruleSetId, batchIds } = req.body;
 
-    if (!title || !course || !type || !startTime || !endTime) {
-      return sendError(res, 'title, course, type, startTime and endTime are required', 400);
+    if (!title || !course || !type || !startTime || !endTime || !ruleSetId) {
+      return sendError(res, 'title, course, type, startTime, endTime and ruleSetId are required', 400);
     }
 
-    if (new Date(startTime) >= new Date(endTime)) {
+    if (!Number.isFinite(Date.parse(startTime)) || !Number.isFinite(Date.parse(endTime)) || new Date(startTime) >= new Date(endTime)) {
       return sendError(res, 'startTime must be strictly before endTime', 400);
     }
 
+    if (!Array.isArray(batchIds) || batchIds.length === 0 || !batchIds.every((id: unknown) => mongoose.isValidObjectId(id))) {
+      return sendError(res, 'Select at least one valid batch', 400);
+    }
+    const ownedCount = await Batch.countDocuments({ _id: { $in: batchIds }, professorId: req.user.id });
+    if (ownedCount !== new Set(batchIds.map(String)).size) return sendError(res, 'You do not own every selected batch', 403);
+    if (!mongoose.isValidObjectId(ruleSetId) || !await Rule.exists({ _id: ruleSetId, professorId: req.user.id, mode: 'Blocklist' })) {
+      return sendError(res, 'Select one of your blocklist rule sets', 403);
+    }
     const session = await Session.create({
       title,
       course,
@@ -41,7 +51,7 @@ export const createSession = async (req: Request | any, res: Response) => {
       startTime,
       endTime,
       ruleSetId,
-      batchIds: Array.isArray(batchIds) ? batchIds : [],
+      batchIds,
       professorId: req.user.id,
     });
 
@@ -55,6 +65,7 @@ export const createSession = async (req: Request | any, res: Response) => {
 // @route   GET /api/sessions
 export const getSessions = async (req: Request | any, res: Response) => {
   try {
+    await reconcileSessions();
     if (req.user.role === 'professor') {
       const sessions = await Session.find({ professorId: req.user.id })
         .sort({ startTime: -1 });
@@ -69,13 +80,7 @@ export const getSessions = async (req: Request | any, res: Response) => {
 
       const joinedBatchIds = (student.joinedBatches || []).map((batchId) => batchId.toString());
 
-      const sessions = await Session.find({
-        $or: [
-          { batchIds: { $in: joinedBatchIds } },
-          { batchIds: { $exists: false } },
-          { batchIds: { $size: 0 } },
-        ],
-      }).sort({ startTime: 1 });
+      const sessions = await Session.find({ batchIds: { $in: joinedBatchIds } }).sort({ startTime: 1 });
 
       return sendSuccess(res, sessions, 'Sessions fetched successfully');
     }
@@ -133,6 +138,10 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
     session.status = normalizedStatus as any;
 
     if (normalizedStatus === 'Active') {
+      const clock = new Date();
+      if (session.startTime > clock || session.endTime <= clock) {
+        return sendError(res, 'Session can only start within its scheduled time window', 400);
+      }
       // B2 FIX: Block activation if another session is already active for any overlapping batch.
       if (session.batchIds && session.batchIds.length > 0) {
         const conflicting = await Session.findOne({
@@ -149,16 +158,6 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
         }
       }
 
-      const now = new Date();
-
-      // Manual activation should always make the session active in the current window.
-      if (!session.startTime || session.startTime > now) {
-        session.startTime = now;
-      }
-
-      if (!session.endTime || session.endTime <= now || session.endTime <= session.startTime) {
-        session.endTime = new Date(now.getTime() + 60 * 60 * 1000);
-      }
     } else if (normalizedStatus === 'Upcoming' || normalizedStatus === 'Cancelled' || normalizedStatus === 'Completed') {
         if (req.body.startTime && req.body.endTime) {
              if (new Date(req.body.startTime) >= new Date(req.body.endTime)) {
@@ -194,7 +193,7 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
           }
         }
 
-        io.emit('session_started', {
+        io.to(String(session._id)).emit('session_started', {
           sessionId: String(session._id),
           title: session.title,
           course: session.course,
@@ -207,7 +206,7 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
       }
 
       if (['Completed', 'Cancelled'].includes(normalizedStatus)) {
-        io.emit('session_ended', {
+        io.to(String(session._id)).emit('session_ended', {
           sessionId: String(session._id),
           title: session.title,
           previousStatus,
@@ -245,7 +244,7 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
 export const joinSession = async (req: Request | any, res: Response) => {
   try {
     const session = await Session.findById(req.params.id).select(
-      '_id title status batchIds joinedStudentIds'
+      '_id title status startTime endTime batchIds joinedStudentIds'
     );
 
     if (!session) {
@@ -253,7 +252,7 @@ export const joinSession = async (req: Request | any, res: Response) => {
     }
 
     // B3 FIX: Only allow joining Active sessions (not Upcoming).
-    if (String(session.status) !== 'Active') {
+    if (String(session.status) !== 'Active' || session.startTime > new Date() || session.endTime <= new Date()) {
       return sendError(res, `Cannot join a ${String(session.status).toLowerCase()} session. The session must be active.`, 400);
     }
 
@@ -317,6 +316,7 @@ export const deleteSession = async (req: Request | any, res: Response) => {
       return sendError(res, 'Not authorised to delete this session', 403);
     }
 
+    if (session.status === 'Active') return sendError(res, 'Complete or cancel the active session before deleting it', 409);
     await session.deleteOne();
     return sendSuccess(res, null, 'Session deleted successfully');
   } catch (err: any) {

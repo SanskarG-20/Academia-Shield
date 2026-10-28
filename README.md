@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Academia Shield</h1>
-  <p><strong>Enterprise-grade academic integrity and classroom session management platform.</strong></p>
+  <p><strong>Scheduled lab sessions with device-bound policy enforcement and activity monitoring.</strong></p>
   
   [![Build Status](https://github.com/SanskarG-20/Academia-Shield/actions/workflows/build-agent.yml/badge.svg)](https://github.com/SanskarG-20/Academia-Shield/actions)
 
@@ -10,16 +10,16 @@
 
 <br />
 
-**Academia Shield** is a centralized platform for educators to manage classes and enforce internet policies during exams or lab sessions. Professors define rules (blocked domains/applications) and start sessions. A lightweight, auto-starting Python agent on student machines enforces these restrictions in real-time via OS-level controls.
+**Academia Shield** is a centralized platform for educators to manage classes and enforce internet policies during exams or lab sessions. Professors define rules and start sessions. A local Python agent applies managed hosts entries for blocked domains, requests a normal close for listed GUI applications, and reports activity during authorized sessions.
 
 ---
 
 ## ✨ Key Features
 
 - **Real-Time Command Center:** Monitor student presence (Online/Idle/Offline), active applications, and compliance via WebSockets.
-- **Zero-Touch Desktop Agent:** Standalone Windows `.exe` that installs as a background service and auto-starts on boot. No Python required on student machines.
-- **Seamless Lab Pairing:** Perfect for shared computer labs. The background agent dynamically pairs with the current student the exact moment they log into the Web App.
-- **Dynamic Policy Enforcement:** Modifies OS network settings (hosts/DNS) automatically when a session starts, and restores them when it ends.
+- **Desktop Agent:** The Windows executable can auto-start at logon after local installation and enrollment.
+- **Device Enrollment:** A signed-in student creates a ten-minute, one-time claim and enters it in the local agent. The agent stores its device credential in the operating-system credential store.
+- **Scheduled Policy Enforcement:** The API starts and ends lab sessions from server time; the agent blocks listed domains and requests a normal close for named applications. A recovery task removes expired managed settings even if the main agent exits unexpectedly.
 - **AI-Powered Analytics:** Uses Google Gemini to analyze session logs, generate summaries, and flag anomalous behavior.
 - **Secure Authentication:** JWT-based sessions with Email OTP verification for students.
 
@@ -38,8 +38,8 @@ flowchart LR
   DB[(MongoDB)]
   
   WEB <-->|REST + WebSocket| API & SOCKET
-  WEB -->|Local Identity Ping :49494| AGENT
-  AGENT -->|Polls Config| API
+  WEB -->|One-time claim displayed to student| AGENT
+  AGENT -->|Authenticated policy polling| API
   AGENT -->|Telemetry & Heartbeats| API
   API --> DB
   AGENT --> HOSTS[OS Hosts File]
@@ -64,7 +64,7 @@ npm install
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
 ```
-*(Populate `MONGO_URI`, `JWT_SECRET`, and `VITE_GEMINI_API_KEY` appropriately)*
+*(Populate `MONGO_URI`, `JWT_SECRET`, email delivery settings, and any optional analytics key appropriately. Development-only mock OTP must not be used in production.)*
 
 ### 3. Run the Stack
 ```bash
@@ -87,12 +87,19 @@ Invoke-WebRequest -Uri "https://github.com/SanskarG-20/Academia-Shield/releases/
 .\AcademiaShield.exe --install
 ```
 
-*Note: You do not need to provide an SAP ID during installation. The agent will automatically detect who is sitting at the PC the moment they log into the Academia Shield website.*
+The fresh installation is un-enrolled. The student signs in, joins a professor's batch with its code, opens the student sessions page, and generates an enrollment code. On that same computer, run `AcademiaShield.exe enroll` and enter the code at the prompt. The code expires after ten minutes and can be used once. Start the agent or log in again after enrollment. A student can revoke an enrolled device from the same page. To pair an existing agent with another student, enroll again with the new student's claim; the previous device credential is revoked.
+
+Install and enroll under the **same Windows account**. This version requires that account to have administrator rights for hosts-file enforcement. If Windows elevation uses a different administrator account, its credential store and desktop session are separate; this version does not support that arrangement.
 
 ### Agent CLI Commands
-- `AcademiaShield.exe --install` : Install as a Windows scheduled task (auto-starts on boot).
-- `AcademiaShield.exe --uninstall` : Remove background service and clean up files.
+- `AcademiaShield.exe --install` : Install logon and once-per-minute recovery tasks.
+- `AcademiaShield.exe --uninstall` : Stop enforcement, restore managed settings, and remove scheduled tasks. Files and backups remain for inspection.
+- `AcademiaShield.exe --recover` : Check for an expired/missing local policy and restore managed settings when needed.
 - `AcademiaShield.exe --status` : View current installation and connection status.
+- `AcademiaShield.exe enroll` : Prompt for a student's one-time enrollment code.
+- `AcademiaShield.exe logout` : Clear the local credential. Revoke the device in the dashboard when retiring it.
+
+The agent enforces only server-issued policy for its authenticated device. Policies and offline cache entries expire no later than the session's end time. New DNS redirection is disabled; recovery still restores DNS settings left by older agent versions. Application close requests never force-terminate a process, so an app with unsaved work may remain open. The API reconciles session start/end at startup and every five seconds, independent of browser timers. See [implementation specification](docs/device-bound-lab-sessions-spec.md) and [device safety audit](docs/agent-device-safety-audit.md).
 
 ## 🛠️ Tech Stack
 

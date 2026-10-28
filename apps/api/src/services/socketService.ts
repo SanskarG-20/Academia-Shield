@@ -1,135 +1,97 @@
 import { Server, Socket } from 'socket.io';
+import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
+import Professor from '../models/Professor';
+import Student from '../models/Student';
+import Session from '../models/Session';
+import { authenticateDevice } from '../middleware/deviceAuth';
 
 let ioInstance: Server | null = null;
+export const getIO = () => ioInstance;
 
-export const getIO = (): Server | null => ioInstance;
+export async function authorizeSessionRoom(identity: { role: string; id: string }, sessionId: string): Promise<boolean> {
+  if (!mongoose.isValidObjectId(sessionId)) return false;
+  const session = await Session.findById(sessionId).select('professorId');
+  if (!session) return false;
+  if (identity.role === 'professor') return String(session.professorId) === identity.id;
+  // Session rooms carry every student's logs and telemetry. Students use REST
+  // for their own data, so only the owning professor may join these rooms.
+  return false;
+}
 
 export const setupSocket = (io: Server) => {
   ioInstance = io;
+  io.use(async (socket, next) => {
+    try {
+      const token = String(socket.handshake.auth?.token || '');
+      if (token.startsWith('Device ')) {
+        const device = await authenticateDevice(token);
+        if (!device) return next(new Error('Device authentication failed'));
+        socket.data.identity = { role: 'agent', id: String(device._id), studentId: String(device.studentId) };
+        return next();
+      }
+      const decoded = jwt.verify(token.replace(/^Bearer /, ''), process.env.JWT_SECRET as string) as { id: string; role: string; exp: number };
+      if (decoded.role === 'professor' && await Professor.exists({ _id: decoded.id })) {
+        socket.data.identity = { role: 'professor', id: decoded.id, exp: decoded.exp };
+      } else if (decoded.role === 'student' && await Student.exists({ _id: decoded.id })) {
+        socket.data.identity = { role: 'student', id: decoded.id, exp: decoded.exp };
+      } else return next(new Error('Invalid socket identity'));
+      return next();
+    } catch { return next(new Error('Socket authentication required')); }
+  });
 
   io.on('connection', (socket: Socket) => {
-    console.log('[socket] client connected:', socket.id);
+    const identity = socket.data.identity as { role: string; id: string; exp?: number };
+    if (identity.role === 'agent') socket.join(`device_${identity.id}`);
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    if (identity.exp) expiryTimer = setTimeout(() => socket.disconnect(true), Math.max(0, identity.exp * 1000 - Date.now()));
+    const revocationTimer = identity.role === 'agent' ? setInterval(async () => {
+      if (!await authenticateDevice(String(socket.handshake.auth?.token || ''))) socket.disconnect(true);
+    }, 5000) : undefined;
 
-    // Join Session Room (Professor or Student)
-    socket.on('join_session', (sessionId: string) => {
-      if (sessionId) {
-        socket.join(sessionId);
-        console.log(`[socket] ${socket.id} joined session room ${sessionId}`);
-      }
+    socket.on('join_session', async (sessionId: string) => {
+      if (await authorizeSessionRoom(identity, String(sessionId))) socket.join(String(sessionId));
+      else socket.emit('authorization_error', { room: 'session' });
     });
-
-    // Join a broadcast room for all live logs (professors monitor all active sessions)
     socket.on('join_live_logs', () => {
-      socket.join('live_logs');
-      console.log(`[socket] ${socket.id} joined live_logs room`);
+      if (identity.role === 'professor') socket.join(`professor_${identity.id}`);
+      else socket.emit('authorization_error', { room: 'live_logs' });
     });
-
-    // Join the agents room (desktop Python agents)
-    socket.on('join_agent', (agentId: string) => {
-      socket.join('agents');
-      console.log(`[socket] agent ${agentId || socket.id} joined agents room`);
+    socket.on('join_agent', () => {
+      if (identity.role !== 'agent') socket.emit('authorization_error', { room: 'agent' });
     });
-
-    // Handle Student Activity Event
-    socket.on('student_activity', (data) => {
-      // Data: { sessionId, studentName, action, website, status, engagement }
-      // Broadcast to everyone in room (mainly Professor)
-      if (data?.sessionId) {
-        io.to(data.sessionId).emit('live_log_update', data);
-      }
-      // Also broadcast to the live_logs room
-      io.to('live_logs').emit('live_log_update', data);
-    });
-
-    // Handle Disconnect
     socket.on('disconnect', () => {
-      console.log('[socket] client disconnected:', socket.id);
+      if (expiryTimer) clearTimeout(expiryTimer);
+      if (revocationTimer) clearInterval(revocationTimer);
     });
   });
 };
 
-/**
- * Emit a new log entry to all relevant rooms.
- * Called from controllers when logs are created.
- */
-export const emitLogEntry = (log: {
-  _id?: any;
-  sessionId?: any;
-  studentId?: any;
-  studentName?: string;
-  type?: string;
-  resource?: string;
-  details?: string;
-  duration?: number;
-  engagementScore?: number;
-  isViolation?: boolean;
-  timestamp?: any;
-}) => {
+export const emitLogEntry = (log: any) => {
   const io = getIO();
   if (!io) return;
-
   const payload = {
-    _id: String(log._id || ''),
-    sessionId: String(log.sessionId || ''),
-    studentId: String(log.studentId || ''),
-    studentName: log.studentName || 'Unknown',
-    type: log.type || 'EVENT',
-    resource: log.resource || '',
-    details: log.details || '',
-    duration: log.duration,
-    engagementScore: log.engagementScore,
-    isViolation: Boolean(log.isViolation),
-    timestamp: log.timestamp || new Date().toISOString(),
+    _id: String(log._id || ''), sessionId: String(log.sessionId || ''),
+    studentId: String(log.studentId || ''), studentName: log.studentName || 'Unknown',
+    type: log.type || 'EVENT', resource: log.resource || '', details: log.details || '',
+    duration: log.duration, engagementScore: log.engagementScore,
+    isViolation: Boolean(log.isViolation), timestamp: log.timestamp || new Date().toISOString(),
   };
-
-  // Emit to the specific session room
-  if (payload.sessionId) {
-    io.to(payload.sessionId).emit('live_log_update', payload);
-  }
-
-  // Emit to the global live_logs room (for the professor's LiveLogs page)
-  io.to('live_logs').emit('live_log_update', payload);
+  if (!payload.sessionId) return;
+  io.to(payload.sessionId).emit('live_log_update', payload);
+  void Session.findById(payload.sessionId).select('professorId').then(session => {
+    if (session) io.to(`professor_${session.professorId}`).emit('live_log_update', payload);
+  }).catch(() => undefined);
 };
 
-/**
- * Emit multiple log entries (e.g. from agent bulk reports).
- */
-export const emitLogEntries = (logs: any[]) => {
-  for (const log of logs) {
-    emitLogEntry(log);
-  }
-};
+export const emitLogEntries = (logs: any[]) => logs.forEach(emitLogEntry);
 
-/**
- * Broadcast real-time student telemetry to session-specific rooms.
- * Used by the Live Command Center to show live student activity grids.
- */
-export const emitStudentTelemetry = (sessionIds: string[], telemetry: {
-  studentId: string;
-  studentName: string;
-  sapId: string;
-  activeApp: string;
-  status: 'online' | 'idle' | 'offline';
-  engagementScore: number;
-  isViolation: boolean;
-  lastSeen: string;
-}) => {
+export const emitStudentTelemetry = (sessionIds: string[], telemetry: any) => {
   const io = getIO();
-  if (!io) return;
-
-  for (const sessionId of sessionIds) {
-    io.to(sessionId).emit('student_telemetry', {
-      sessionId,
-      ...telemetry,
-    });
-  }
+  if (io) sessionIds.forEach(sessionId => io.to(sessionId).emit('student_telemetry', { sessionId, ...telemetry }));
 };
 
 export const emitStudentActivityUpdate = (sessionIds: string[], data: any) => {
   const io = getIO();
-  if (!io) return;
-
-  for (const sid of sessionIds) {
-    io.to(sid).emit('student_activity_update', { sessionId: sid, ...data });
-  }
+  if (io) sessionIds.forEach(sessionId => io.to(sessionId).emit('student_activity_update', { sessionId, ...data }));
 };

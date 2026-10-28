@@ -38,22 +38,13 @@ const resolveMockOtp = () => {
 };
 
 /**
- * Mock OTP mode returns a fixed, well-known code and is only ever safe off
- * production. Requiring an explicit ALLOW_INSECURE_OTP opt-in means a missing
- * STUDENT_OTP_MODE on the deployed API can no longer silently downgrade student
- * auth to a hardcoded password.
+ * Mock OTP mode is restricted to local development; production requires email.
  */
 const resolveOtpMode = (): 'email' | 'mock' | 'refused' => {
   const mode = (process.env.STUDENT_OTP_MODE || '').toLowerCase();
+  if (isProduction()) return process.env.EMAIL_USER && process.env.EMAIL_PASS ? 'email' : 'refused';
   if (mode === 'mock') return 'mock';
-  if (process.env.ALLOW_INSECURE_OTP === 'true') return 'mock';
   if (mode === 'email') return 'email';
-  // S1 FIX: In production, refuse mock OTP unless explicitly opted in.
-  // In development, fall back to mock if SMTP is not configured.
-  if (isProduction()) {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return 'refused';
-    return 'email';
-  }
   // Dev/test: fall back to mock when SMTP is not configured
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return 'mock';
   return 'email';
@@ -169,8 +160,7 @@ export const requestOtp = async (req: Request, res: Response) => {
 
     if (otpMode === 'refused') {
       console.error(
-        '[OTP] Refusing to issue a mock OTP in production. Set STUDENT_OTP_MODE=email ' +
-          'with valid EMAIL_USER/EMAIL_PASS, or set ALLOW_INSECURE_OTP=true to override.'
+         '[OTP] Email delivery is required in production. Set EMAIL_USER and EMAIL_PASS.'
       );
       return sendError(res, 'OTP delivery is not configured. Please contact your administrator.', 503);
     }
@@ -178,7 +168,6 @@ export const requestOtp = async (req: Request, res: Response) => {
     if (otpMode === 'mock') {
       const mockOtp = resolveMockOtp();
       await createOtpRecord(sapId, mockOtp);
-      console.log(`[MOCK OTP] sapId=${sapId} otp=${mockOtp}`);
 
       return sendSuccess(
         res,
@@ -202,6 +191,8 @@ export const requestOtp = async (req: Request, res: Response) => {
       await sendEmail(studentEmail, 'Your Login OTP', `Your OTP is: ${otpCode}`);
       return sendSuccess(res, { sapId, otpMode: 'email' }, 'OTP sent successfully');
     } catch (emailError: any) {
+      await Otp.deleteMany({ sapId });
+      if (isProduction()) return sendError(res, 'Could not deliver verification code', 502);
       console.warn(`[OTP EMAIL FALLBACK] sapId=${sapId}: ${emailError.message}. Using demo OTP code.`);
       const mockOtp = resolveMockOtp();
       await createOtpRecord(sapId, mockOtp);

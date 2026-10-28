@@ -6,6 +6,7 @@ import { connectDB } from './config/db';
 import { setupSocket } from './services/socketService';
 import Session from './models/Session';
 import { runAnomalyCheck } from './services/anomalyService';
+import { reconcileSessions } from './services/sessionClock';
 
 const PORT = process.env.PORT || 5000;
 
@@ -52,6 +53,11 @@ const startServer = async () => {
     server.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`🚀 Server running on 0.0.0.0:${PORT}`);
     });
+
+    await reconcileSessions();
+    setInterval(() => {
+      reconcileSessions().catch(error => console.error('[session-clock] reconciliation failed', error));
+    }, 5000);
 
     // Schedule anomaly checks during active sessions (every 5 minutes)
     setInterval(async () => {

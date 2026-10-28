@@ -8,11 +8,10 @@ for the current machine.
 
 Engines:
     HostsEnforcementEngine — writes to the OS hosts file (default, cross-platform)
-    DnsEnforcementEngine   — local DNS resolver on 127.0.0.1:53 (Windows only)
+    DnsEnforcementEngine   — retained only to restore legacy DNS backups
 
-get_engine() always returns a usable engine object. If the requested engine
-is unavailable it falls back to the hosts engine, so callers never have to
-handle a None return.
+get_engine() uses hosts enforcement; DNS redirection is disabled to avoid
+machine-wide DNS outages after agent failure.
 """
 
 import logging
@@ -35,44 +34,16 @@ __all__ = [
 ]
 
 
-def _load_dns_engine():
-    """
-    Try to build the DNS engine. Returns the engine or None.
-
-    The DNS engine needs port 53 and netsh, so failure here is expected on
-    most machines and must never be fatal.
-    """
-    try:
-        from enforcement.dns import DnsEnforcementEngine
-    except ImportError as err:
-        LOGGER.warning("DNS engine could not be imported (%s) — falling back to HOSTS mode", err)
-        return None
-
-    try:
-        engine = DnsEnforcementEngine()
-    except Exception as err:
-        LOGGER.warning("DNS engine initialisation failed (%s) — falling back to HOSTS mode", err)
-        return None
-
-    if not engine.is_available():
-        LOGGER.warning("DNS engine is not available on this system — falling back to HOSTS mode")
-        return None
-
-    LOGGER.info("DNS enforcement engine loaded successfully")
-    return engine
-
-
 def get_engine(mode=None):
     """
     Select an enforcement engine.
 
     Args:
-        mode: "DNS" or "HOSTS". Defaults to config.ENFORCEMENT_MODE.
+        mode: "DNS" or "HOSTS". DNS requests safely fall back to hosts.
 
     Returns:
-        An EnforcementEngine instance. Never None — if nothing is available
-        the hosts engine is returned anyway and errors surface at
-        apply_rules() time, where they are logged and retried.
+        A hosts enforcement engine. Never None; permission errors surface at
+        apply_rules() time and are retried.
     """
     if mode is None:
         from config import ENFORCEMENT_MODE
@@ -80,9 +51,7 @@ def get_engine(mode=None):
         mode = ENFORCEMENT_MODE
 
     if str(mode).strip().upper() == "DNS":
-        engine = _load_dns_engine()
-        if engine is not None:
-            return engine
+        LOGGER.warning("DNS redirection is disabled for device safety; using hosts enforcement")
 
     engine = HostsEnforcementEngine()
     if not engine.is_available():
@@ -92,3 +61,11 @@ def get_engine(mode=None):
         )
 
     return engine
+
+
+def restore_previous_system_state():
+    """Clean up managed settings even if the configured engine changed."""
+    hosts_ok = HostsEnforcementEngine().restore_rules()
+    from enforcement.dns import _restore_dns_from_backup
+    dns_ok = _restore_dns_from_backup()
+    return hosts_ok and dns_ok

@@ -19,7 +19,6 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
   batches,
   onCreate,
 }) => {
-  console.log('rendering form');
 
   const [newSession, setNewSession] = useState({
     title: '',
@@ -62,14 +61,19 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
       return;
     }
 
+    if (newSession.selectedBatchIds.length === 0 || !newSession.ruleSetId) {
+      setFormError('Select a batch and a rule set for this session.');
+      return;
+    }
+
     setIsLoading(true);
     try {
       const formData = {
         title: newSession.title.trim(),
         course: newSession.course.trim(),
         type: newSession.type,
-        startTime: `${newSession.date}T${newSession.startTime}`,
-        endTime: `${newSession.date}T${newSession.endTime}`,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
         ruleSetId: newSession.ruleSetId,
         batchIds: newSession.selectedBatchIds
       };
@@ -166,7 +170,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
           label="Rule Set (Policy)"
           options={[
             { value: '', label: 'Select a Rule Set...' },
-            ...rules.map(r => ({ value: r._id, label: r.name }))
+            ...rules.filter(r => r.mode === 'Blocklist').map(r => ({ value: r._id, label: r.name }))
           ]}
           value={newSession.ruleSetId}
           onChange={e => setNewSession({...newSession, ruleSetId: e.target.value})}

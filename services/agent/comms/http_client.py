@@ -6,6 +6,8 @@ Uses only Python stdlib (urllib).
 """
 
 import json
+import hmac
+import hashlib
 import socket
 import time
 import logging
@@ -13,12 +15,12 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import config
+from credentials import load_credential, device_id
 
 from config import (
     SERVER_IP,
     SERVER_PORT,
     AGENT_ID,
-    AGENT_SHARED_SECRET,
     REQUEST_TIMEOUT,
     RETRY_ATTEMPTS,
     RETRY_BACKOFF_SECONDS,
@@ -28,13 +30,22 @@ from config import (
 )
 
 LOGGER = logging.getLogger("academia_shield_agent")
+MAX_POLICY_BYTES = 1_000_000
+MAX_DOMAINS = 200
+MAX_APPS = 50
+
+
+class InvalidPolicyError(Exception):
+    """Authenticated server response cannot be used or cached."""
 
 
 def _auth_headers(extra=None):
-    """Build request headers, attaching the shared agent secret when configured."""
+    """Build request headers using this installation's OS-stored credential."""
     headers = dict(extra or {})
-    if AGENT_SHARED_SECRET:
-        headers["X-Agent-Secret"] = AGENT_SHARED_SECRET
+    credential = load_credential()
+    if not credential:
+        raise RuntimeError("Device is not enrolled")
+    headers["Authorization"] = f"Device {credential}"
     return headers
 
 
@@ -42,17 +53,41 @@ def _auth_headers(extra=None):
 # Config Cache (offline fallback)
 # ---------------------------------------------------------------------------
 def _check_and_expire_cached_config(cached_cfg):
-    """If cached config has active sessions whose ends_at has passed, deactivate blocking."""
+    """Reject cache lacking identity, explicit policy expiry, or valid session end."""
     from datetime import datetime, timezone
+    if not isinstance(cached_cfg, dict):
+        return None
+    if cached_cfg.get("deviceId") != device_id():
+        return None
+    expiry = cached_cfg.get("expiresAt")
+    if not isinstance(expiry, str) or not expiry:
+        return None
+    try:
+        expires_at = datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+        if expires_at.tzinfo is None:
+            return None
+        if expires_at <= datetime.now(timezone.utc):
+            return None
+    except (ValueError, TypeError):
+        return None
     active_sessions = cached_cfg.get("active_sessions", [])
-    if not active_sessions and not cached_cfg.get("active", False):
-        return
+    if not isinstance(active_sessions, list) or any(not isinstance(s, dict) for s in active_sessions):
+        return None
+    domains = cached_cfg.get("blockedDomains", [])
+    apps = cached_cfg.get("blockedApps", [])
+    if (not isinstance(domains, list) or len(domains) > MAX_DOMAINS
+            or not isinstance(apps, list) or len(apps) > MAX_APPS
+            or any(not isinstance(value, str) or len(value) > 253 for value in domains)
+            or any(not isinstance(value, str) or len(value) > 128 for value in apps)):
+        return None
+    if cached_cfg.get("active") and not active_sessions:
+        return None
 
     now = datetime.now(timezone.utc)
     valid_sessions = []
     for s in active_sessions:
         ends_at_str = s.get("ends_at")
-        if not ends_at_str:
+        if not isinstance(ends_at_str, str) or not ends_at_str:
             continue
         try:
             clean_str = ends_at_str.replace("Z", "+00:00")
@@ -65,14 +100,8 @@ def _check_and_expire_cached_config(cached_cfg):
             LOGGER.debug("Failed parsing session ends_at '%s': %s", ends_at_str, err)
 
     if active_sessions and not valid_sessions:
-        LOGGER.warning(
-            "All sessions in cached config expired (ends_at passed). Deactivating blocking."
-        )
-        cached_cfg["active"] = False
-        cached_cfg["blocking_active"] = False
-        cached_cfg["blockedDomains"] = []
-        cached_cfg["domains"] = []
-        cached_cfg["active_sessions"] = []
+        return None
+    return cached_cfg
 
 
 def load_cached_config():
@@ -82,21 +111,59 @@ def load_cached_config():
         return None
 
     try:
+        if os.path.getsize(CACHE_FILE) > MAX_POLICY_BYTES:
+            LOGGER.warning("Cached policy is oversized; ignoring it")
+            return None
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-            if isinstance(cfg, dict):
-                cfg["is_cached"] = True
-                _check_and_expire_cached_config(cfg)
-            return cfg
-    except json.JSONDecodeError:
+            wrapper = json.load(f)
+            credential = load_credential()
+            if not credential or not isinstance(wrapper, dict):
+                return None
+            cfg = wrapper.get("policy")
+            mac = wrapper.get("mac", "")
+            if not isinstance(cfg, dict) or not isinstance(mac, str):
+                return None
+            expected = hmac.new(credential.encode(), json.dumps(cfg, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(mac, expected):
+                return None
+            cfg["is_cached"] = True
+            return _check_and_expire_cached_config(cfg)
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, AttributeError, UnicodeError):
         LOGGER.warning("Cache file is corrupted; ignoring cached config.")
         return None
 
 
 def save_cached_config(config):
     """Persist config to the cache file."""
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(config, f)
+    import os
+    if not config.get("active"):
+        try:
+            os.remove(CACHE_FILE)
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            LOGGER.warning("Could not remove cached policy: %s", error)
+        return
+    credential = load_credential()
+    if not credential or not _check_and_expire_cached_config(config):
+        return
+    mac = hmac.new(credential.encode(), json.dumps(config, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+    import tempfile
+    temp_path = None
+    try:
+        fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(CACHE_FILE), prefix="policy-", suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"policy": config, "mac": mac}, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, CACHE_FILE)
+    except OSError as error:
+        LOGGER.warning("Could not persist cached policy: %s", error)
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +182,14 @@ def normalize_config(payload):
     active = bool(payload.get("active", payload.get("blocking_active", False)))
     blocked_domains = payload.get("blockedDomains", payload.get("domains", []))
     blocked_apps = payload.get("blockedApps", payload.get("apps", []))
+    active_sessions = payload.get("active_sessions", [])
+    if (not isinstance(blocked_domains, list) or not isinstance(blocked_apps, list)
+            or not isinstance(active_sessions, list)):
+        raise RuntimeError("Server returned invalid policy lists")
+    if (len(blocked_domains) > MAX_DOMAINS or len(blocked_apps) > MAX_APPS
+            or any(not isinstance(value, str) or len(value) > 253 for value in blocked_domains)
+            or any(not isinstance(value, str) or len(value) > 128 for value in blocked_apps)):
+        raise RuntimeError("Server policy exceeds safe size limits")
 
     return {
         "active": active,
@@ -124,7 +199,10 @@ def normalize_config(payload):
         "domains": list(blocked_domains or []),
         "apps": list(blocked_apps or []),
         "server_time": payload.get("server_time", ""),
-        "active_sessions": list(payload.get("active_sessions", []) or []),
+        "active_sessions": active_sessions,
+        "deviceId": payload.get("deviceId"),
+        "issuedAt": payload.get("issuedAt"),
+        "expiresAt": payload.get("expiresAt"),
         "test_mode": bool(payload.get("test_mode", TEST_MODE)),
         "device_authorized": bool(payload.get("device_authorized", True)),
     }
@@ -136,17 +214,23 @@ def normalize_config(payload):
 def fetch_remote_config_once():
     """Single HTTP GET to the agent config endpoint."""
     protocol = "https" if USE_HTTPS else "http"
-    query = urllib.parse.urlencode({
-        "deviceId": AGENT_ID,
-        "agentId": AGENT_ID,
-    })
-    url = f"{protocol}://{SERVER_IP}:{SERVER_PORT}/api/agent/config?{query}"
+    url = f"{protocol}://{SERVER_IP}:{SERVER_PORT}/api/agent/config"
     req = urllib.request.Request(url, headers=_auth_headers())
 
     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as response:
-        data = response.read().decode("utf-8")
+        data = response.read(MAX_POLICY_BYTES + 1)
+        if len(data) > MAX_POLICY_BYTES:
+            raise InvalidPolicyError("Server policy response is too large")
+        data = data.decode("utf-8")
         payload = json.loads(data)
-        config = normalize_config(payload)
+        try:
+            config = normalize_config(payload)
+        except RuntimeError as error:
+            raise InvalidPolicyError(str(error)) from error
+        if config["deviceId"] != device_id():
+            raise InvalidPolicyError("Policy belongs to another device")
+        if config["active"] and not _check_and_expire_cached_config(config):
+            raise InvalidPolicyError("Policy is expired or invalid")
         save_cached_config(config)
         return config
 
@@ -156,6 +240,16 @@ def fetch_config_with_retry():
     for attempt in range(1, RETRY_ATTEMPTS + 1):
         try:
             return fetch_remote_config_once()
+        except urllib.error.HTTPError as err:
+            if err.code in (401, 403):
+                LOGGER.warning("Device authorization rejected; restoring local policy")
+                save_cached_config({"active": False})
+                return None
+            LOGGER.warning("Config fetch failed: HTTP %s", err.code)
+        except InvalidPolicyError as err:
+            LOGGER.warning("Rejecting invalid server policy: %s", err)
+            save_cached_config({"active": False})
+            return None
         except (urllib.error.URLError, socket.timeout, RuntimeError, json.JSONDecodeError) as err:
             LOGGER.warning(
                 "Config fetch attempt %s/%s failed: %s",
@@ -178,8 +272,6 @@ def report_to_server(action, domains=None):
     try:
         protocol = "https" if USE_HTTPS else "http"
         payload = json.dumps({
-            "agentId": AGENT_ID,
-            "sapId": config.STUDENT_SAP_ID or None,
             "action": action,
             "domains": list(domains or []),
         }).encode("utf-8")
@@ -207,13 +299,9 @@ def report_to_server(action, domains=None):
 # ---------------------------------------------------------------------------
 def send_heartbeat(active_app="Unknown", status="online"):
     """POST periodic heartbeat telemetry to the backend (best-effort)."""
-    if not config.STUDENT_SAP_ID:
-        return  # Can't send heartbeat without SAP ID
-
     try:
         protocol = "https" if USE_HTTPS else "http"
         payload = json.dumps({
-            "sapId": config.STUDENT_SAP_ID,
             "activeApp": active_app,
             "status": status,
         }).encode("utf-8")
@@ -236,12 +324,11 @@ def send_heartbeat(active_app="Unknown", status="online"):
 
 def send_activity_batch(events):
     """POST batched activity events to the backend (best-effort)."""
-    if not config.STUDENT_SAP_ID or not events:
+    if not events:
         return
 
     try:
         payload = json.dumps({
-            "sapId": config.STUDENT_SAP_ID,
             "events": events,
         }).encode("utf-8")
 

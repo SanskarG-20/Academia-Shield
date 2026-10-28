@@ -7,14 +7,17 @@ managed marker comments. Preserves all existing system entries.
 
 import os
 import platform
+import shutil
 import sys
 import tempfile
 import urllib.parse
 import logging
+import re
+import ipaddress
 from typing import List
 
 from enforcement.base import EnforcementEngine
-from config import MARKER_START, MARKER_END, REDIRECT_IP, BACKUP_FILE
+from config import MARKER_START, MARKER_END, REDIRECT_IP, BACKUP_FILE, SERVER_IP
 
 LOGGER = logging.getLogger("academia_shield_agent")
 
@@ -47,6 +50,18 @@ def normalize_domain(domain):
         value = parsed.netloc.strip().lower()
 
     value = value.split("/")[0].split(":")[0].strip()
+    if len(value) > 253 or "." not in value or value in {"localhost", SERVER_IP.lower()}:
+        return ""
+    if value.endswith((".local", ".localhost", ".internal", ".lan", ".home", ".arpa", ".test", ".invalid")):
+        return ""
+    try:
+        ipaddress.ip_address(value)
+        return ""
+    except ValueError:
+        pass
+    if any(len(label) > 63 or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+           for label in value.split(".")):
+        return ""
     return value
 
 
@@ -69,7 +84,9 @@ def normalize_domain_list(domains):
 # Hosts file manipulation helpers
 # ---------------------------------------------------------------------------
 def _read_hosts_lines(hosts_path):
-    with open(hosts_path, "r", encoding="utf-8", errors="ignore") as f:
+    # Latin-1 is a reversible byte mapping. Never discard an existing hosts
+    # byte just because the file is not valid UTF-8.
+    with open(hosts_path, "r", encoding="latin-1", newline="") as f:
         return f.readlines()
 
 
@@ -77,15 +94,21 @@ def _remove_managed_block(lines):
     """Strip the managed block (between markers) from hosts lines."""
     cleaned = []
     inside_managed_block = False
+    seen_block = False
 
     for line in lines:
         stripped = line.strip()
 
         if stripped == MARKER_START:
+            if inside_managed_block or seen_block:
+                raise ValueError("Duplicate managed hosts marker; refusing to alter hosts file")
             inside_managed_block = True
+            seen_block = True
             continue
 
         if stripped == MARKER_END:
+            if not inside_managed_block:
+                raise ValueError("Unmatched managed hosts marker; refusing to alter hosts file")
             inside_managed_block = False
             continue
 
@@ -93,30 +116,42 @@ def _remove_managed_block(lines):
             cleaned.append(line)
 
     if inside_managed_block:
-        LOGGER.warning("Managed block start marker found without end marker; cleaned stale managed block.")
+        raise ValueError("Unclosed managed hosts block; refusing to alter hosts file")
 
     return cleaned
 
 
 def _ensure_backup_exists(hosts_lines):
     """Create a one-time backup of the pristine hosts file. Never overwrites."""
-    if os.path.exists(BACKUP_FILE):
+    if os.path.lexists(BACKUP_FILE):
+        if os.path.islink(BACKUP_FILE) or not os.path.isfile(BACKUP_FILE):
+            LOGGER.error("Hosts backup path is not a regular file; refusing update")
+            return False
         return True
 
     # A3 FIX: Strip any existing managed block before backing up so the backup is always pristine.
     pristine_lines = _remove_managed_block(hosts_lines)
 
+    created = False
     try:
-        with open(BACKUP_FILE, "w", encoding="utf-8") as f:
+        with open(BACKUP_FILE, "x", encoding="latin-1", newline="") as f:
+            created = True
             f.writelines(pristine_lines)
+            f.flush()
+            os.fsync(f.fileno())
         LOGGER.info("Backup created: %s", BACKUP_FILE)
         return True
     except Exception as err:
+        if created:
+            try:
+                os.remove(BACKUP_FILE)
+            except OSError:
+                pass
         LOGGER.error("Could not create hosts backup; skipping update for safety: %s", err)
         return False
 
 
-def _build_managed_block(domains):
+def _build_managed_block(domains, newline="\n"):
     """Build the marker-delimited block of hosts entries."""
     unique_domains = set()
     for domain in normalize_domain_list(domains):
@@ -127,11 +162,26 @@ def _build_managed_block(domains):
     if not unique_domains:
         return []
 
-    block = [f"{MARKER_START}\n"]
+    block = [f"{MARKER_START}{newline}"]
     for domain in sorted(unique_domains):
-        block.append(f"{REDIRECT_IP} {domain}\n")
-    block.append(f"{MARKER_END}\n")
+        block.append(f"{REDIRECT_IP} {domain}{newline}")
+    block.append(f"{MARKER_END}{newline}")
     return block
+
+
+def _replace_hosts_file(original, replacement):
+    """Replace atomically while preserving Windows hosts ACLs/attributes."""
+    if platform.system() == "Windows":
+        import ctypes
+        from ctypes import wintypes
+        replace = ctypes.WinDLL("kernel32", use_last_error=True).ReplaceFileW
+        replace.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                            wintypes.DWORD, wintypes.LPVOID, wintypes.LPVOID]
+        replace.restype = wintypes.BOOL
+        if not replace(original, replacement, None, 0, None, None):
+            raise ctypes.WinError(ctypes.get_last_error())
+    else:
+        os.replace(replacement, original)
 
 
 def _log_dns_flush_instruction():
@@ -181,7 +231,11 @@ class HostsEnforcementEngine(EnforcementEngine):
     # -- internal implementation (extracted from original agent.py) ----------
 
     def _apply_domains_to_hosts(self, domains):
+        if os.path.islink(self._hosts_path):
+            LOGGER.error("Hosts path is a symbolic link; refusing to alter it")
+            return False
         try:
+            initial_stat = os.stat(self._hosts_path)
             current_lines = _read_hosts_lines(self._hosts_path)
         except PermissionError:
             LOGGER.error("Run as administrator to apply blocking")
@@ -190,28 +244,43 @@ class HostsEnforcementEngine(EnforcementEngine):
             LOGGER.error("Failed to read hosts file safely: %s", err)
             return False
 
-        preserved_lines = _remove_managed_block(current_lines)
-        managed_block = _build_managed_block(domains)
+        try:
+            preserved_lines = _remove_managed_block(current_lines)
+        except ValueError as error:
+            LOGGER.error("%s", error)
+            return False
+        newline = "\r\n" if any(line.endswith("\r\n") for line in current_lines) else "\n"
+        needs_separator = bool(preserved_lines and not preserved_lines[-1].endswith(("\n", "\r")))
+        if domains and needs_separator:
+            LOGGER.error("Hosts file has no final newline; refusing to append a managed block")
+            return False
+        managed_block = _build_managed_block(domains, newline)
 
         new_lines = list(preserved_lines)
         if managed_block:
-            if new_lines and not new_lines[-1].endswith("\n"):
-                new_lines[-1] = new_lines[-1] + "\n"
-            if new_lines and new_lines[-1].strip() != "":
-                new_lines.append("\n")
             new_lines.extend(managed_block)
+
+        if new_lines == current_lines:
+            return True
 
         if not _ensure_backup_exists(current_lines):
             return False
 
         try:
-            # A1 FIX: Atomic write — write to temp file, then os.replace.
+            # Atomic replacement keeps the original intact if writing fails.
             hosts_dir = os.path.dirname(self._hosts_path)
             fd, tmp_path = tempfile.mkstemp(dir=hosts_dir, suffix=".tmp", prefix="hosts_")
             try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                with os.fdopen(fd, "w", encoding="latin-1", newline="") as f:
                     f.writelines(new_lines)
-                os.replace(tmp_path, self._hosts_path)
+                    f.flush()
+                    os.fsync(f.fileno())
+                latest_stat = os.stat(self._hosts_path)
+                if (latest_stat.st_mtime_ns != initial_stat.st_mtime_ns
+                        or latest_stat.st_size != initial_stat.st_size):
+                    raise RuntimeError("Hosts file changed concurrently; retrying later")
+                shutil.copystat(self._hosts_path, tmp_path)
+                _replace_hosts_file(self._hosts_path, tmp_path)
             except BaseException:
                 # Clean up temp file on failure
                 try:

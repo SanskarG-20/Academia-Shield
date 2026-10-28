@@ -1,47 +1,8 @@
 import { Request, Response } from 'express';
 import Log from '../models/Log';
 import Session from '../models/Session';
-import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
-import { emitLogEntry } from '../services/socketService';
 import mongoose from 'mongoose';
-
-// @desc    Save Logs (Usage or Event)
-// @route   POST /api/logs
-export const createLog = async (req: Request | any, res: Response) => {
-  try {
-    const { sessionId, type, resource, details, duration, engagementScore, isViolation } = req.body;
-
-    if (!sessionId || !type) {
-      return sendError(res, 'sessionId and type are required', 400);
-    }
-
-    const student = await Student.findById(req.user.id).select('name').catch(() => null);
-    if (!student && req.user.role === 'student_temp') {
-      // For temp students, use sapId from token as fallback
-      return sendError(res, 'Please complete your profile setup before logging activity', 403);
-    }
-
-    const log = await Log.create({
-      sessionId,
-      studentId: req.user.id,
-      studentName: student?.name || req.user.name || 'Unknown',
-      type,
-      resource,
-      details,
-      duration,
-      engagementScore,
-      isViolation: Boolean(isViolation),
-    });
-
-    // Broadcast to connected WebSocket clients.
-    emitLogEntry(log);
-
-    return sendSuccess(res, log, 'Log created successfully', 201);
-  } catch (err: any) {
-    return sendError(res, err.message || 'Unable to create log', 500);
-  }
-};
 
 // @desc    Get Logs (role-aware)
 // @route   GET /api/logs

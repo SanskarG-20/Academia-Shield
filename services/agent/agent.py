@@ -13,11 +13,9 @@ Environment Variables:
     TEST_MODE               — "true" for local development
     SERVER_IP               — Backend API IP address (fallback if API_URL not set)
     SERVER_PORT             — Backend API port (default 5000)
-    STUDENT_SAP_ID          — Student SAP ID for log attribution
-    AGENT_SHARED_SECRET     — Sent as X-Agent-Secret on /api/agent/* calls
-    PAIRING_ALLOWED_ORIGINS — Comma-separated web origins allowed to pair this machine
+    Enrollment              — Run `python agent.py enroll` before starting
     POLL_INTERVAL           — Polling interval in seconds (clamped to 5-300, default 8)
-    ENFORCEMENT_MODE        — "HOSTS" (default) or "DNS"
+    ENFORCEMENT_MODE        — "HOSTS" (DNS setting falls back to HOSTS)
     SOCKET_ENABLED          — "true" to enable Socket.IO push (requires python-socketio)
 
 See config.py for the full list of configuration options.
@@ -62,133 +60,35 @@ import env_loader
 env_loader.load_env()
 
 import ctypes
-import json
+import atexit
 import platform
-import re
 import shutil
 import subprocess
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# Imported as a module (not `from config import ...`) so that the SAP ID set
-# at runtime by the local pairing server is visible to every reader.
 import config
 from config import (
     AGENT_ID,
+    DNS_BACKUP_FILE,
     ENFORCEMENT_MODE,
     POLL_INTERVAL,
     SERVER_IP,
     SERVER_PORT,
     SOCKET_ENABLED,
     SOCKET_URL,
+    STOP_FILE,
     TEST_MODE,
 )
 from logger import setup_logger
 from comms import fetch_config_with_retry, report_to_server, send_heartbeat
 from comms import http_client
-from enforcement import get_engine, normalize_domain_list
+from enforcement import get_engine, normalize_domain_list, restore_previous_system_state
 from activity import get_activity_tracker
+from credentials import load_credential, device_id, clear_credential
+from enforcement.apps import enforce_blocked_apps
 
 LOGGER = setup_logger()
-
-# ---------------------------------------------------------------------------
-# Local Identity Server (Allows Web App to set SAP ID seamlessly)
-# ---------------------------------------------------------------------------
-SAP_ID_PATTERN = re.compile(r"^\d{12}$")
-
-
-class LocalAgentHandler(BaseHTTPRequestHandler):
-    """
-    Accepts the pairing handshake from the web app on 127.0.0.1:49494.
-
-    This endpoint decides which student every subsequent report and heartbeat is
-    attributed to, so it is origin-checked rather than left open. CORS headers alone
-    would not be enough: a simple cross-origin POST still reaches the handler even
-    though the browser hides the response, so the Origin is validated before any
-    state changes.
-    """
-
-    def _resolve_origin(self):
-        """Return (origin_header, is_allowed) for the current request."""
-        origin = (self.headers.get('Origin') or '').strip().rstrip('/')
-        if not origin:
-            # Not a browser. The socket is bound to loopback, so the caller is
-            # already a local process with at least this much privilege.
-            return '', True
-        return origin, origin.lower() in config.PAIRING_ALLOWED_ORIGINS
-
-    def _respond(self, status, body=b'', origin=''):
-        self.send_response(status)
-        if origin:
-            self.send_header('Access-Control-Allow-Origin', origin)
-            self.send_header('Vary', 'Origin')
-        self.send_header('Access-Control-Allow-Private-Network', 'true')
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        if body:
-            self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        origin, allowed = self._resolve_origin()
-        if not allowed:
-            LOGGER.warning(f"Rejected pairing preflight from disallowed origin: {origin}")
-            self._respond(403, b'{"error":"origin not allowed"}')
-            return
-
-        self.send_response(204)
-        if origin:
-            self.send_header('Access-Control-Allow-Origin', origin)
-            self.send_header('Vary', 'Origin')
-        self.send_header('Access-Control-Allow-Private-Network', 'true')
-        self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Access-Control-Request-Private-Network')
-        self.send_header('Access-Control-Max-Age', '600')
-        self.send_header('Content-Length', '0')
-        self.end_headers()
-
-    def do_POST(self):
-        origin, allowed = self._resolve_origin()
-        if not allowed:
-            LOGGER.warning(f"Rejected pairing request from disallowed origin: {origin}")
-            self._respond(403, b'{"error":"origin not allowed"}')
-            return
-
-        if self.path != '/identify':
-            self._respond(404, b'{"error":"not found"}', origin)
-            return
-
-        try:
-            content_length = int(self.headers.get('Content-Length', 0) or 0)
-        except ValueError:
-            content_length = 0
-
-        if 0 < content_length <= 4096:
-            post_data = self.rfile.read(content_length)
-            try:
-                data = json.loads(post_data.decode('utf-8'))
-                sap_id = str(data.get('sapId') or '').strip()
-                if SAP_ID_PATTERN.match(sap_id):
-                    config.STUDENT_SAP_ID = sap_id
-                    LOGGER.info(f"Agent successfully paired with SAP ID: {sap_id}")
-                    self._respond(200, b'{"status":"ok"}', origin)
-                    return
-            except Exception as e:
-                LOGGER.error(f"Error parsing identify payload: {e}")
-
-        self._respond(400, b'{"error":"invalid request"}', origin)
-
-    def log_message(self, format, *args):
-        pass # Suppress HTTP access logs
-
-def start_local_server():
-    try:
-        server = HTTPServer(('127.0.0.1', 49494), LocalAgentHandler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        LOGGER.info("Local identity server listening on 127.0.0.1:49494")
-    except Exception as e:
-        LOGGER.error(f"Failed to start local identity server: {e}")
 
 # ---------------------------------------------------------------------------
 # Globals & State
@@ -200,6 +100,51 @@ LAST_STATE = None
 HEARTBEAT_INTERVAL = 15  # seconds between heartbeats
 ACTIVITY_REPORT_INTERVAL = 3  # seconds between activity batch reports (near instant)
 activity_tracker = None
+_MAIN_MUTEX_HANDLE = None
+
+
+def acquire_main_instance():
+    """Prevent two agent loops from racing over one machine's hosts file."""
+    global _MAIN_MUTEX_HANDLE
+    if platform.system() != "Windows":
+        return True
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.CreateMutexW(None, False, "Global\\AcademiaShieldAgentMain")
+    if not handle:
+        LOGGER.error("Could not acquire agent instance guard; refusing enforcement")
+        return False
+    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+        kernel32.CloseHandle(handle)
+        LOGGER.warning("Another agent instance is already running")
+        return False
+    _MAIN_MUTEX_HANDLE = handle
+    atexit.register(lambda: kernel32.CloseHandle(handle))
+    return True
+
+
+def disable_activity_tracking():
+    if activity_tracker:
+        activity_tracker.stop()
+        activity_tracker.clear()
+
+
+def request_stop():
+    """Create a stop marker without following a planted symlink."""
+    try:
+        os.makedirs(os.path.dirname(STOP_FILE), exist_ok=True)
+        if os.path.lexists(STOP_FILE):
+            return os.path.isfile(STOP_FILE) and not os.path.islink(STOP_FILE)
+        with open(STOP_FILE, "x", encoding="utf-8") as file:
+            file.write("stop\n")
+        return True
+    except OSError as error:
+        LOGGER.error("Cannot create agent stop request: %s", error)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +189,7 @@ def heartbeat_loop():
     """Send periodic heartbeats with the foreground window title."""
     while RUNNING:
         try:
-            if LAST_STATE in ("ACTIVE", "ERROR"):
+            if LAST_STATE == "ACTIVE":
                 title = get_active_window_title()
                 send_heartbeat(active_app=title, status="online")
             else:
@@ -292,9 +237,22 @@ def is_admin():
 # ---------------------------------------------------------------------------
 def sync_once(engine):
     """Single polling cycle: fetch config → apply or restore rules."""
+    global LAST_APPLIED_DOMAINS, LAST_STATE
     remote_config = fetch_config_with_retry()
+    if os.path.lexists(STOP_FILE):
+        disable_activity_tracking()
+        LAST_STATE = "STANDBY" if engine.restore_rules() else "ERROR"
+        LAST_APPLIED_DOMAINS = set()
+        return
     if not remote_config:
-        LOGGER.warning("No config available from server or cache; retrying in %ss", POLL_INTERVAL)
+        disable_activity_tracking()
+        restored = engine.restore_rules()
+        if restored:
+            LAST_STATE = "STANDBY"
+            LAST_APPLIED_DOMAINS = set()
+        else:
+            LAST_STATE = "ERROR"
+        LOGGER.warning("No valid policy available; restoration %s", "complete" if restored else "will retry")
         return
 
     should_block = bool(remote_config.get("active", remote_config.get("blocking_active", False)))
@@ -343,15 +301,10 @@ def sync_once(engine):
     if domains_to_block:
         LOGGER.info("Blocked domain set from API: %s", ", ".join(domains_to_block))
 
-    global LAST_APPLIED_DOMAINS, LAST_STATE
-
     if should_block:
         normalized = normalize_domain_list(domains_to_block)
         current_domains_set = set(normalized)
         
-        if activity_tracker:
-            activity_tracker.set_blocked_domains(domains_to_block)
-
         if LAST_STATE != "ACTIVE" or LAST_APPLIED_DOMAINS != current_domains_set:
             LOGGER.info("Applying blocking rules for %s domains via %s", len(normalized), engine.name)
             
@@ -361,25 +314,51 @@ def sync_once(engine):
                 LAST_STATE = "ACTIVE"
                 LAST_APPLIED_DOMAINS = current_domains_set
             else:
-                LOGGER.error("Failed to apply blocking rules (run as Administrator to block domains). Activity monitoring remains active.")
+                LOGGER.error("Failed to apply blocking rules; restoring previous managed settings.")
+                engine.restore_rules()
+                disable_activity_tracking()
                 LAST_STATE = "ERROR"
-                LAST_APPLIED_DOMAINS = current_domains_set
+                LAST_APPLIED_DOMAINS = set()
         else:
             LOGGER.debug("Blocking rules unchanged; skipping enforcement update")
+        if LAST_STATE == "ACTIVE":
+            if activity_tracker:
+                activity_tracker.set_blocked_domains(domains_to_block)
+                activity_tracker.start()
+            blocked_apps = remote_config.get("blockedApps", [])
+            for app in enforce_blocked_apps(blocked_apps):
+                report_to_server("APP_CLOSE_REQUESTED", [app])
     else:
+        disable_activity_tracking()
         if LAST_STATE != "STANDBY":
             LOGGER.info("STANDBY | no active blocking session")
-            engine.restore_rules()
-            report_to_server("BLOCK_REMOVED")
+        was_enforcing = LAST_STATE != "STANDBY"
+        restored = engine.restore_rules()
+        if restored:
+            if was_enforcing:
+                report_to_server("BLOCK_REMOVED")
             LAST_STATE = "STANDBY"
             LAST_APPLIED_DOMAINS = set()
+        else:
+            LAST_STATE = "ERROR"
 
 
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 def main():
-    start_local_server()
+    global LAST_STATE, LAST_APPLIED_DOMAINS
+    if not acquire_main_instance():
+        return
+    if os.path.lexists(STOP_FILE):
+        restore_previous_system_state()
+        LOGGER.warning("Agent stop was requested; enforcement remains off")
+        return
+    if not load_credential():
+        # A lost or removed credential must not leave a previous policy enforced.
+        restore_previous_system_state()
+        LOGGER.warning("Agent is not enrolled. Generate a claim in the student dashboard and run: python agent.py enroll")
+        return
     LOGGER.info("=" * 50)
     LOGGER.info("ACADEMIA SHIELD AGENT")
     LOGGER.info("=" * 50)
@@ -389,7 +368,7 @@ def main():
     LOGGER.info("Test mode:        %s", TEST_MODE)
     LOGGER.info("Poll interval:    %ss", POLL_INTERVAL)
     LOGGER.info("Socket.IO:        %s", "enabled" if SOCKET_ENABLED else "disabled")
-    LOGGER.info("Student SAP ID:   %s", config.STUDENT_SAP_ID or "(not set - logs will use agent hostname)")
+    LOGGER.info("Enrolled device:  %s", device_id())
 
     # Admin check
     if is_admin():
@@ -405,6 +384,9 @@ def main():
     # Select engine
     engine = get_engine()
     LOGGER.info("Active engine:    %s", engine.name)
+    if not restore_previous_system_state():  # Recover both modes after a crash or mode change.
+        LOGGER.error("Could not restore previous managed settings; refusing to enforce new policy")
+        return
 
     # Socket.IO setup (optional push channel; HTTP polling works regardless)
     agent_socket = None
@@ -431,8 +413,7 @@ def main():
     # Start activity tracker
     global activity_tracker
     activity_tracker = get_activity_tracker()
-    activity_tracker.start()
-    LOGGER.info("Activity tracker: %s", activity_tracker.__class__.__name__)
+    LOGGER.info("Activity tracker ready: %s (starts with an active policy)", activity_tracker.__class__.__name__)
 
     activity_thread = threading.Thread(target=activity_report_loop, args=(activity_tracker,), daemon=True, name="activity-reporter")
     activity_thread.start()
@@ -454,11 +435,20 @@ def main():
             if not RUNNING:
                 break
 
+            if os.path.lexists(STOP_FILE):
+                LOGGER.info("Stop requested; restoring and exiting")
+                break
+
             sync_once(engine)
 
         except PermissionError:
             LOGGER.error("Permission denied while updating system configuration.")
             LOGGER.error("Run as administrator to apply blocking")
+            disable_activity_tracking()
+            LAST_STATE = "ERROR"
+            LAST_APPLIED_DOMAINS = set()
+            if not restore_previous_system_state():
+                LOGGER.error("Could not restore managed network settings; recovery task will retry")
             SYNC_EVENT.wait(POLL_INTERVAL)
             SYNC_EVENT.clear()
         except KeyboardInterrupt:
@@ -466,6 +456,14 @@ def main():
             break
         except Exception as err:
             LOGGER.exception("Unexpected runtime error: %s", err)
+            disable_activity_tracking()
+            LAST_STATE = "ERROR"
+            LAST_APPLIED_DOMAINS = set()
+            try:
+                if not restore_previous_system_state():
+                    LOGGER.error("Could not restore managed network settings; recovery task will retry")
+            except Exception:
+                LOGGER.exception("Restoration after runtime error failed; recovery task will retry")
             SYNC_EVENT.wait(POLL_INTERVAL)
             SYNC_EVENT.clear()
 
@@ -473,18 +471,27 @@ def main():
     RUNNING = False
     LOGGER.info("Restoring original system state before shutdown...")
     try:
-        if activity_tracker:
-            # Final flush
-            events = activity_tracker.flush()
-            if events:
-                http_client.send_activity_batch(events)
-            activity_tracker.stop()
-        engine.shutdown()
-        report_to_server("BLOCK_REMOVED")
+        try:
+            disable_activity_tracking()
+            engine.shutdown()
+        except Exception:
+            LOGGER.exception("Shutdown cleanup failed; trying direct restoration")
+        if restore_previous_system_state():
+            report_to_server("BLOCK_REMOVED")
+        else:
+            LOGGER.error("Shutdown restoration incomplete; recovery task will retry")
     finally:
         if agent_socket:
             agent_socket.disconnect()
         LOGGER.info("Agent stopped.")
+
+
+def recover_expired_policy():
+    """Scheduled offline cleanup after a crash or expired cached policy."""
+    if (os.path.lexists(STOP_FILE) or os.path.lexists(DNS_BACKUP_FILE)
+            or not load_credential() or not http_client.load_cached_config()):
+        return restore_previous_system_state()
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +501,7 @@ INSTALL_DIR = os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"), "Ac
 INSTALL_EXE = os.path.join(INSTALL_DIR, "AcademiaShield.exe")
 INSTALL_ENV = os.path.join(INSTALL_DIR, ".env.production")
 TASK_NAME = "AcademiaShieldAgent"
+RECOVERY_TASK_NAME = "AcademiaShieldRecovery"
 
 
 def _get_current_exe():
@@ -520,7 +528,7 @@ def do_install():
     """
     Install the agent for auto-startup:
     1. Copy the .exe to C:\\ProgramData\\AcademiaShield\\
-    2. Write a .env.production with the student's SAP ID
+    2. Write non-secret runtime configuration
     3. Create a Windows Scheduled Task to run at logon with admin rights
     """
     if platform.system() != "Windows":
@@ -532,27 +540,30 @@ def do_install():
         print("        Right-click your terminal and select 'Run as administrator'.")
         return 1
 
+    if not getattr(sys, 'frozen', False):
+        print("[ERROR] Auto-install requires the built Windows executable.")
+        return 1
+
     print()
     print("=" * 55)
     print("  Academia Shield Agent — Installer")
     print("=" * 55)
     print()
 
-    # 2. Create install directory. The SAP ID is intentionally left blank —
-    #    the web app pairs it at runtime via the local identity server.
+    # 2. Create install directory. Enrollment is performed separately.
     os.makedirs(INSTALL_DIR, exist_ok=True)
 
     # 3. Copy the exe
     current_exe = _get_current_exe()
-    if current_exe.endswith('.py'):
-        print("[WARNING] Running from source — skipping .exe copy.")
-        print("          Build with PyInstaller first, then run the .exe with --install.")
-    else:
-        if os.path.normpath(current_exe) != os.path.normpath(INSTALL_EXE):
-            print(f"  [1/3] Copying agent to {INSTALL_DIR}...")
+    if os.path.normcase(os.path.abspath(current_exe)) != os.path.normcase(os.path.abspath(INSTALL_EXE)):
+        print(f"  [1/3] Copying agent to {INSTALL_DIR}...")
+        try:
             shutil.copy2(current_exe, INSTALL_EXE)
-        else:
-            print("  [1/3] Agent already in install directory.")
+        except OSError as error:
+            print(f"[ERROR] Could not copy agent executable: {error}")
+            return 1
+    else:
+        print("  [1/3] Agent already in install directory.")
 
     # 4. Write .env.production
     print("  [2/3] Saving configuration...")
@@ -565,27 +576,33 @@ REQUEST_TIMEOUT=10
 RETRY_ATTEMPTS=5
 ENFORCEMENT_MODE=HOSTS
 SOCKET_ENABLED=false
-STUDENT_SAP_ID=
 """
-    with open(INSTALL_ENV, "w", encoding="utf-8") as f:
-        f.write(env_content)
+    if not os.path.exists(INSTALL_ENV):
+        with open(INSTALL_ENV, "x", encoding="utf-8") as f:
+            f.write(env_content)
+    else:
+        print("  Existing configuration preserved.")
 
     # 5. Create Scheduled Task
     print("  [3/3] Registering auto-start task...")
 
-    # Remove existing task if present
-    subprocess.run(
-        ["schtasks", "/delete", "/tn", TASK_NAME, "/f"],
-        capture_output=True, check=False,
+    # Recovery runs every minute so a crash cannot strand expired restrictions.
+    recovery = subprocess.run(
+        ["schtasks", "/create", "/tn", RECOVERY_TASK_NAME,
+         "/tr", f'"{INSTALL_EXE}" --recover', "/sc", "MINUTE", "/mo", "1",
+         "/rl", "HIGHEST", "/f"],
+        capture_output=True, text=True,
     )
+    if recovery.returncode != 0:
+        print(f"[ERROR] Could not register recovery task: {recovery.stderr.strip()}")
+        return 1
 
-    # Create new task: run at logon, with highest privileges, no time limit
-    exe_path = INSTALL_EXE if not current_exe.endswith('.py') else current_exe
+    # Create or update the logon task only after recovery is in place.
     result = subprocess.run(
         [
             "schtasks", "/create",
             "/tn", TASK_NAME,
-            "/tr", f'"{exe_path}"',
+            "/tr", f'"{INSTALL_EXE}"',
             "/sc", "ONLOGON",
             "/rl", "HIGHEST",         # Run with admin privileges
             "/f",                      # Force overwrite
@@ -597,31 +614,43 @@ STUDENT_SAP_ID=
         print(f"[ERROR] Failed to create scheduled task: {result.stderr.strip()}")
         return 1
 
+    if os.path.lexists(STOP_FILE):
+        if os.path.islink(STOP_FILE):
+            print("[ERROR] Stop marker is a symbolic link; inspect it before installation.")
+            return 1
+        try:
+            os.remove(STOP_FILE)
+        except OSError as error:
+            print(f"[ERROR] Cannot clear prior stop request: {error}")
+            return 1
+
     # Also start the agent now
     print()
     print("=" * 55)
     print("  ✅ Installation Complete!")
     print("=" * 55)
     print()
-    print(f"  SAP ID:     (Auto-detected via Web App)")
+    print(f"  Device:     {'enrolled' if load_credential() else 'not enrolled'}")
     print(f"  Install:    {INSTALL_DIR}")
     print(f"  Auto-start: Enabled (runs at logon as Administrator)")
     print()
     print("  The agent will now start automatically every time you")
-    print("  log into Windows. No further action is needed.")
+    print("  log into Windows. Enroll the device before starting enforcement.")
     print()
     print("  To uninstall:  AcademiaShield.exe --uninstall")
     print("  To check:      AcademiaShield.exe --status")
     print()
 
-    # Start the agent immediately
-    print("  Starting agent now...")
-    print()
-    return None  # Signal to continue into main()
+    if load_credential():
+        print("  Starting enrolled agent now...")
+        print()
+        return None  # Signal to continue into main().
+    print("  Agent remains off until enrollment.")
+    return 0
 
 
 def do_uninstall():
-    """Remove the scheduled task and optionally the install directory."""
+    """Stop enforcement and tasks, retaining files for safe manual cleanup."""
     if platform.system() != "Windows":
         print("[ERROR] Auto-uninstall is only supported on Windows.")
         return 1
@@ -630,11 +659,20 @@ def do_uninstall():
         print("[ERROR] Uninstallation requires Administrator privileges.")
         return 1
 
+    if not getattr(sys, 'frozen', False):
+        print("[ERROR] Run uninstall from the built Windows executable.")
+        return 1
+
     print()
     print("  Academia Shield Agent — Uninstaller")
     print()
 
-    # 1. Remove scheduled task
+    # Existing agent instances check this before applying another policy.
+    if not request_stop():
+        print("[ERROR] Could not create a safe stop request; no tasks were removed.")
+        return 1
+
+    # Stop future logon starts before restoring settings.
     result = subprocess.run(
         ["schtasks", "/delete", "/tn", TASK_NAME, "/f"],
         capture_output=True, text=True,
@@ -642,29 +680,34 @@ def do_uninstall():
     if result.returncode == 0:
         print("  [✓] Auto-start task removed.")
     else:
+        remaining = subprocess.run(["schtasks", "/query", "/tn", TASK_NAME], capture_output=True)
+        if remaining.returncode == 0:
+            print("[ERROR] Auto-start task still exists; stop request remains in place.")
+            return 1
         print("  [—] No auto-start task found (already removed).")
 
-    # 2. Remove install directory
-    if os.path.exists(INSTALL_DIR):
-        try:
-            # Don't delete the exe if we're running from it
-            current_exe = _get_current_exe()
-            if os.path.normpath(current_exe) == os.path.normpath(INSTALL_EXE):
-                # We're running from install dir — just remove env and task
-                if os.path.exists(INSTALL_ENV):
-                    os.remove(INSTALL_ENV)
-                print("  [✓] Configuration removed.")
-                print(f"  [!] Delete {INSTALL_DIR} manually (agent is running from there).")
-            else:
-                shutil.rmtree(INSTALL_DIR, ignore_errors=True)
-                print(f"  [✓] Removed {INSTALL_DIR}")
-        except Exception as e:
-            print(f"  [!] Could not fully remove install dir: {e}")
+    if not restore_previous_system_state():
+        print("[ERROR] Could not restore all managed network settings. Recovery task and backup files remain for retry.")
+        return 1
+
+    try:
+        clear_credential()
+    except Exception as error:
+        print(f"  [!] Could not remove local credential: {error}")
+
+    recovery = subprocess.run(
+        ["schtasks", "/delete", "/tn", RECOVERY_TASK_NAME, "/f"],
+        capture_output=True, text=True,
+    )
+    if recovery.returncode == 0:
+        print("  [✓] Recovery task removed.")
     else:
-        print("  [—] Install directory not found.")
+        print("  [!] Recovery task could not be removed; inspect it manually.")
+        return 1
 
     print()
-    print("  ✅ Uninstallation complete. Agent will no longer auto-start.")
+    print("  Managed hosts/DNS settings restored. Installed files and backups are retained")
+    print(f"  in {INSTALL_DIR} for inspection; no directory is deleted automatically.")
     print()
     return 0
 
@@ -681,16 +724,7 @@ def do_status():
     else:
         print("  Install:    Not installed")
 
-    # Check env file
-    if os.path.exists(INSTALL_ENV):
-        with open(INSTALL_ENV, encoding="utf-8") as f:
-            for line in f:
-                if line.strip().startswith("STUDENT_SAP_ID="):
-                    sap = line.strip().split("=", 1)[1]
-                    print(f"  SAP ID:     {sap or '(paired at runtime by the web app)'}")
-                    break
-    else:
-        print("  SAP ID:     (no config found)")
+    print(f"  Device:     {device_id() or '(not enrolled)'}")
 
     # Check scheduled task (Windows only — schtasks does not exist elsewhere)
     if platform.system() != "Windows":
@@ -704,6 +738,11 @@ def do_status():
             print("  Auto-start: Enabled ✓")
         else:
             print("  Auto-start: Disabled ✗")
+        recovery = subprocess.run(
+            ["schtasks", "/query", "/tn", RECOVERY_TASK_NAME],
+            capture_output=True, text=True,
+        )
+        print(f"  Recovery:   {'Enabled' if recovery.returncode == 0 else 'Disabled'}")
 
     print()
     return 0
@@ -713,7 +752,36 @@ if __name__ == "__main__":
     # Handle CLI commands before entering the main agent loop
     if len(sys.argv) > 1:
         cmd = sys.argv[1].lower().strip("-/")
-        if cmd == "install":
+        if cmd == "enroll":
+            if len(sys.argv) != 2:
+                print("Usage: python agent.py enroll")
+                sys.exit(2)
+            from enroll import enroll
+            from getpass import getpass
+            try:
+                enrolled_id = enroll(getpass("Enrollment code: ").strip())
+                if os.path.lexists(STOP_FILE):
+                    if os.path.islink(STOP_FILE):
+                        raise RuntimeError("Stop marker is a symbolic link")
+                    os.remove(STOP_FILE)
+                print(f"Device enrolled: {enrolled_id}")
+            except Exception as error:
+                print(f"Enrollment failed: {error}")
+                sys.exit(1)
+            sys.exit(0)
+        elif cmd == "logout":
+            if not request_stop():
+                print("[ERROR] Could not request safe agent stop.")
+                sys.exit(1)
+            if not restore_previous_system_state():
+                print("[ERROR] Network settings could not be restored; credential retained for recovery.")
+                sys.exit(1)
+            clear_credential()
+            print("Local device credential removed and managed settings restored. Revoke this device in the dashboard if needed.")
+            sys.exit(0)
+        elif cmd == "recover":
+            sys.exit(0 if recover_expired_policy() else 1)
+        elif cmd == "install":
             result = do_install()
             if result is not None:
                 sys.exit(result)
@@ -732,6 +800,7 @@ if __name__ == "__main__":
             print("    AcademiaShield.exe --install     Install and auto-start on boot")
             print("    AcademiaShield.exe --uninstall   Remove auto-start")
             print("    AcademiaShield.exe --status      Show installation status")
+            print("    AcademiaShield.exe enroll        Pair with a student account")
             print()
             sys.exit(0)
         else:

@@ -32,7 +32,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Agent-Secret', 'X-Device-Id']
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(helmet());
 app.use(morgan('dev'));

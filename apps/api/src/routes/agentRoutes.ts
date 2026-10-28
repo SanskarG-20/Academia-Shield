@@ -1,17 +1,18 @@
 import express from 'express';
-import { getAgentConfig, reportAgentActivity, reportAgentHeartbeat } from '../controllers/agentController';
+import { getAgentConfig, getAgentOverview, reportAgentActivity, reportAgentHeartbeat } from '../controllers/agentController';
 import { ingestActivityBatch } from '../controllers/activityController';
-import { agentAuth } from '../middleware/agentAuth';
+import { enrollDevice, issueEnrollmentClaim, listDevices, revokeDevice } from '../controllers/enrollmentController';
+import { deviceAuth } from '../middleware/deviceAuth';
+import { protect, authorize } from '../middleware/auth';
 
 const router = express.Router();
-
-// Callers present either the shared agent secret or a signed-in user's JWT.
-// See middleware/agentAuth.ts — enforcement activates once AGENT_SHARED_SECRET is set.
-router.use(agentAuth);
-
-router.get('/config', getAgentConfig);
-router.post('/report', reportAgentActivity);
-router.post('/heartbeat', reportAgentHeartbeat);
-router.post('/activity', ingestActivityBatch);
-
+router.post('/enrollment-claims', protect, authorize('student'), issueEnrollmentClaim);
+router.post('/enroll', enrollDevice);
+router.get('/devices', protect, authorize('student'), listDevices);
+router.delete('/devices/:id', protect, authorize('student'), revokeDevice);
+router.get('/overview', protect, getAgentOverview);
+router.get('/config', deviceAuth, getAgentConfig);
+router.post('/report', deviceAuth, reportAgentActivity);
+router.post('/heartbeat', deviceAuth, reportAgentHeartbeat);
+router.post('/activity', deviceAuth, ingestActivityBatch);
 export default router;

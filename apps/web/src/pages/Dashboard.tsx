@@ -34,8 +34,6 @@ import {
   getMe,
   getMyBatches,
   getSessions,
-  reportAgentHeartbeat,
-  pairLocalAgent,
 } from '../lib/api';
 
 const StatCard = ({ title, value, trend, icon, color }: any) => (
@@ -65,7 +63,6 @@ export const Dashboard: React.FC = () => {
   const isStudent = userRole === 'student';
 
   const [userName, setUserName] = useState('User');
-  const [userSapId, setUserSapId] = useState('');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -87,10 +84,6 @@ export const Dashboard: React.FC = () => {
       ]);
 
       setUserName(profile.name || (isStudent ? 'Student' : 'Professor'));
-      if (isStudent && profile.sapId) {
-        setUserSapId(profile.sapId);
-        pairLocalAgent(profile.sapId);
-      }
       setSessions(sessionsData);
       setLogs(logsData);
       setAgentConfig(agentData);
@@ -122,24 +115,6 @@ export const Dashboard: React.FC = () => {
     const interval = setInterval(() => loadDashboard(false), 15000);
     return () => clearInterval(interval);
   }, [isStudent]);
-
-  // ─── Student Presence Heartbeat ─────────────────────────────────────────────
-  useEffect(() => {
-    if (!isStudent || !userSapId) return;
-
-    const hasActiveSessions = sessions.some(
-      s => String(s.status).toLowerCase() === 'active'
-    );
-    if (!hasActiveSessions) return;
-
-    reportAgentHeartbeat({ sapId: userSapId, activeApp: 'Dashboard', status: 'online' }).catch(() => null);
-
-    const heartbeatInterval = setInterval(() => {
-      reportAgentHeartbeat({ sapId: userSapId, activeApp: 'Dashboard', status: 'online' }).catch(() => null);
-    }, 15_000);
-
-    return () => clearInterval(heartbeatInterval);
-  }, [isStudent, userSapId, sessions]);
 
   const activeSessions = useMemo(
     () => sessions.filter((session) => String(session.status).toLowerCase() === 'active'),

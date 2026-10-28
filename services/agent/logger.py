@@ -4,6 +4,8 @@ Academia Shield Agent — Logger Module
 
 import sys
 import logging
+from logging.handlers import RotatingFileHandler
+import os
 from config import LOG_FILE
 
 
@@ -23,7 +25,9 @@ def setup_logger():
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    if os.path.islink(LOG_FILE):
+        raise RuntimeError("Agent log path is a symbolic link")
+    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 

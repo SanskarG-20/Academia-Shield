@@ -1,15 +1,7 @@
-"""
-Academia Shield Agent — DNS Resolver Enforcement Engine (Production Mode)
+"""Legacy DNS code retained only to restore settings from older installs.
 
-Blocks domains by running a lightweight local DNS resolver on 127.0.0.1:53.
-Blocked domains resolve to 127.0.0.1. All other queries are forwarded to the
-upstream DNS server transparently.
-
-System DNS is temporarily pointed to 127.0.0.1 via netsh (Windows) or
-/etc/resolv.conf (Linux/macOS). Original settings are saved to dns_backup.json
-and restored when the session ends or the agent exits.
-
-Uses only Python standard library — zero external dependencies.
+New DNS redirection is disabled because a stopped local resolver can interrupt
+all name resolution. The active agent uses managed hosts entries instead.
 """
 
 import atexit
@@ -264,9 +256,14 @@ def _get_current_dns_windows(interface):
             for part in parts:
                 if _is_ipv4(part):
                     servers.append(part)
-        return servers if servers else ["dhcp"]
-    except Exception:
-        return ["dhcp"]
+        if servers:
+            return servers
+        if "DHCP" in output.upper():
+            return ["dhcp"]
+        return None
+    except Exception as error:
+        LOGGER.error("[DNS] Could not read adapter DNS settings: %s", error)
+        return None
 
 
 def _is_ipv4(s):
@@ -282,24 +279,42 @@ def _is_ipv4(s):
 
 def _save_dns_backup(interface, original_servers):
     """Save original DNS settings to disk for safe restoration."""
+    if os.path.exists(DNS_BACKUP_FILE):
+        return True
     backup = {"interface": interface, "servers": original_servers, "timestamp": time.time()}
     try:
-        with open(DNS_BACKUP_FILE, "w", encoding="utf-8") as f:
+        temp_path = DNS_BACKUP_FILE + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
             json.dump(backup, f, indent=2)
+        os.replace(temp_path, DNS_BACKUP_FILE)
         LOGGER.info("[DNS] Backup saved: %s → %s", interface, original_servers)
+        return True
     except Exception as err:
         LOGGER.error("[DNS] Failed to save DNS backup: %s", err)
+        return False
 
 
 def _load_dns_backup():
     """Load saved DNS backup from disk."""
-    if not os.path.exists(DNS_BACKUP_FILE):
+    if os.path.islink(DNS_BACKUP_FILE):
+        raise ValueError("DNS backup path is a symbolic link")
+    if not os.path.lexists(DNS_BACKUP_FILE):
         return None
     try:
         with open(DNS_BACKUP_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
+            backup = json.load(f)
+        if (not isinstance(backup, dict) or not isinstance(backup.get("interface"), str)
+                or not backup["interface"].strip() or len(backup["interface"]) > 128
+                or any(ord(char) < 32 for char in backup["interface"])):
+            raise ValueError("missing interface")
+        servers = backup.get("servers")
+        if not isinstance(servers, list) or not servers or not all(
+            isinstance(server, str) and (server == "dhcp" or _is_ipv4(server)) for server in servers
+        ):
+            raise ValueError("invalid original DNS servers")
+        return backup
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        raise ValueError(f"DNS backup is unreadable or invalid: {error}") from error
 
 
 def _remove_dns_backup():
@@ -334,36 +349,74 @@ def _set_dns_windows(interface, dns_server):
         return False
 
 
+def _apply_dns_servers_windows(interface, servers):
+    primary = servers[0] if servers else "dhcp"
+    if primary != "dhcp" and not _is_ipv4(primary):
+        return False
+    if not _set_dns_windows(interface, primary):
+        return False
+    if primary == "dhcp":
+        return True
+    for index, server in enumerate(servers[1:], 2):
+        if not _is_ipv4(server):
+            return False
+        try:
+            subprocess.check_call(
+                ["netsh", "interface", "ip", "add", "dns", interface, server, f"index={index}"],
+                timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            return False
+    return True
+
+
 def _restore_dns_from_backup():
     """Restore DNS settings from the backup file."""
-    backup = _load_dns_backup()
+    try:
+        backup = _load_dns_backup()
+    except ValueError as error:
+        LOGGER.error("[DNS] %s; retaining backup for manual recovery", error)
+        return False
     if not backup:
         LOGGER.info("[DNS] No DNS backup found — nothing to restore")
-        return
+        return True
 
     interface = backup.get("interface", "Wi-Fi")
     servers = backup.get("servers", ["dhcp"])
 
     system = platform.system()
     if system == "Windows":
-        primary = servers[0] if servers else "dhcp"
-        if primary == "dhcp" or not _is_ipv4(primary):
-            _set_dns_windows(interface, "dhcp")
+        current = _get_current_dns_windows(interface)
+        if current is None:
+            LOGGER.error("[DNS] Could not verify current adapter settings; retaining backup")
+            return False
+        if "127.0.0.1" not in current:
+            LOGGER.warning("[DNS] Adapter DNS changed outside agent; preserving current settings")
+            _remove_dns_backup()
+            return True
+        if current == ["127.0.0.1"]:
+            success = _apply_dns_servers_windows(interface, servers)
         else:
-            _set_dns_windows(interface, primary)
+            # Another administrator added DNS servers while our loopback entry
+            # was active. Keep their servers and remove only our loopback entry.
+            success = _apply_dns_servers_windows(interface, [s for s in current if s != "127.0.0.1"])
+        if not success:
+            LOGGER.error("[DNS] Restore failed; retaining backup for retry")
+            return False
     else:
-        LOGGER.info("[DNS] Non-Windows restore: set DNS back to %s", servers)
-        # On Linux/macOS, restoring resolv.conf would go here
+        LOGGER.error("[DNS] Legacy DNS restoration is supported only on Windows; retaining backup")
+        return False
 
     _remove_dns_backup()
     LOGGER.info("[DNS] Original DNS settings restored")
+    return True
 
 
 # ---------------------------------------------------------------------------
 # DNS Enforcement Engine
 # ---------------------------------------------------------------------------
 class DnsEnforcementEngine(EnforcementEngine):
-    """Production enforcement engine using a local DNS resolver."""
+    """Legacy DNS engine retained for cleanup; new redirection is disabled."""
 
     def __init__(self):
         self._resolver: Optional[_DnsResolverThread] = None
@@ -397,39 +450,9 @@ class DnsEnforcementEngine(EnforcementEngine):
             return False
 
     def apply_rules(self, domains: List[str]) -> bool:
-        """Start the DNS resolver (if not running) and block the given domains."""
-        # 1. Start the resolver thread if needed
-        if self._resolver is None or not self._resolver.is_alive():
-            self._resolver = _DnsResolverThread(DNS_LISTEN_PORT, DNS_UPSTREAM, DNS_UPSTREAM_PORT)
-            self._resolver.start()
-            # Give it a moment to bind
-            time.sleep(0.3)
-            if not self._resolver._running:
-                LOGGER.error("[DNS] Resolver failed to start")
-                return False
-
-        # 2. Update blocked domains
-        self._resolver.set_blocked_domains(domains)
-        LOGGER.info("[DNS] Blocking %s domains (+ www variants)", len(domains))
-
-        # 3. Redirect system DNS to 127.0.0.1 (only on first apply)
-        if not self._dns_redirected:
-            self._interface = _get_windows_dns_interface()
-            original_servers = _get_current_dns_windows(self._interface)
-
-            # Don't re-backup if we're already pointing to ourselves
-            if original_servers != ["127.0.0.1"]:
-                _save_dns_backup(self._interface, original_servers)
-
-            success = _set_dns_windows(self._interface, "127.0.0.1")
-            if success:
-                self._dns_redirected = True
-                LOGGER.info("[DNS] System DNS redirected to local resolver")
-            else:
-                LOGGER.error("[DNS] Failed to redirect system DNS — blocking may not work")
-                return False
-
-        return True
+        """New adapter DNS redirection is disabled for device safety."""
+        LOGGER.error("[DNS] New DNS enforcement is disabled; use managed hosts mode")
+        return False
 
     def restore_rules(self) -> bool:
         """Stop blocking: clear the domain list and restore original DNS."""
@@ -438,8 +461,9 @@ class DnsEnforcementEngine(EnforcementEngine):
             self._resolver.clear_blocked_domains()
 
         # 2. Restore original DNS settings
-        if self._dns_redirected:
-            _restore_dns_from_backup()
+        if self._dns_redirected or os.path.exists(DNS_BACKUP_FILE):
+            if not _restore_dns_from_backup():
+                return False
             self._dns_redirected = False
 
         LOGGER.info("[DNS] All rules cleared, original DNS restored")

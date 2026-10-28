@@ -96,6 +96,8 @@ class WindowsActivityTracker(BaseActivityTracker):
     def start(self):
         if self._running:
             return
+        self._last_process = None
+        self._last_title = None
         self._running = True
         self._thread = threading.Thread(target=self._poll_loop, daemon=True, name="activity-tracker")
         self._thread.start()

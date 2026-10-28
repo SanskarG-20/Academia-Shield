@@ -16,11 +16,11 @@ import {
   Loader2 as Spinner,
 } from 'lucide-react';
 import { Batch, Session, SessionStatus } from '../types';
-import { createLog, getAgentConfig, getMe, getMyBatches, getSessions, joinSession, reportAgentHeartbeat } from '../lib/api';
+import { getAgentConfig, getMe, getMyBatches, getSessions, joinSession } from '../lib/api';
+import { DeviceEnrollmentPanel } from '../components/DeviceEnrollmentPanel';
 
 export const StudentSession: React.FC = () => {
   const [userName, setUserName] = useState('Student');
-  const [userSapId, setUserSapId] = useState('');
   const [sessions, setSessions] = useState<Session[]>([]);
   const [myBatches, setMyBatches] = useState<Batch[]>([]);
   const [agentConfig, setAgentConfig] = useState<any>(null);
@@ -43,7 +43,6 @@ export const StudentSession: React.FC = () => {
       ]);
 
       setUserName(profile.name || 'Student');
-      setUserSapId(profile.sapId || '');
       setSessions(sessionsData);
       setMyBatches(myBatchesData);
       setAgentConfig(agentData);
@@ -66,20 +65,6 @@ export const StudentSession: React.FC = () => {
     const interval = setInterval(() => loadData(false), 15000);
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    if (!isWorking || !userSapId) return;
-
-    // Send heartbeat immediately on working status change
-    reportAgentHeartbeat({ sapId: userSapId, activeApp: 'Student Console', status: 'online' }).catch(() => null);
-
-    // Continue sending heartbeats every 15 seconds to keep presence 'online'
-    const interval = setInterval(() => {
-      reportAgentHeartbeat({ sapId: userSapId, activeApp: 'Student Console', status: 'online' }).catch(() => null);
-    }, 15000);
-
-    return () => clearInterval(interval);
-  }, [isWorking, userSapId]);
 
   const getStatusColor = (status: SessionStatus | string) => {
     switch (String(status).toLowerCase()) {
@@ -109,6 +94,20 @@ export const StudentSession: React.FC = () => {
 
   const currentSession = sessions.find((session) => session._id === currentSessionId) || activeSession;
 
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const check = () => {
+      const selected = sessions.find(session => session._id === currentSessionId);
+      if (!selected || String(selected.status).toLowerCase() !== 'active' || new Date(selected.endTime).getTime() <= Date.now()) {
+        setIsWorking(false);
+        setCurrentSessionId(null);
+      }
+    };
+    check();
+    const timer = setInterval(check, 5000);
+    return () => clearInterval(timer);
+  }, [currentSessionId, sessions]);
+
   const hideSession = (id: string) => {
     setHiddenSessionIds((prev) => [...prev, id]);
   };
@@ -123,15 +122,6 @@ export const StudentSession: React.FC = () => {
       setCurrentSessionId(sessionId);
       setIsWorking(true);
 
-      // Log initial join event so professor monitor updates instantly
-      await createLog({
-        sessionId,
-        type: 'EVENT',
-        resource: 'system',
-        details: 'Student joined live session',
-        engagementScore: 90,
-        isViolation: false,
-      }).catch(() => null);
     } catch (err: any) {
       alert(err.message || 'Unable to join this session. Please join the class batch first.');
     }
@@ -164,6 +154,7 @@ export const StudentSession: React.FC = () => {
   if (isWorking && currentSession) {
     return (
       <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
+        <DeviceEnrollmentPanel />
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
@@ -172,11 +163,11 @@ export const StudentSession: React.FC = () => {
             </h2>
             <p className="text-slate-500 mt-1 flex items-center gap-2">
               <Activity size={14} className="text-emerald-500" />
-              Activity logging enabled for this session
+              Desktop agent activity is reported when this device is enrolled
             </p>
           </div>
           <Button variant="danger" onClick={() => setIsWorking(false)}>
-            Stop Session
+            Leave working view
           </Button>
         </div>
 
@@ -186,7 +177,7 @@ export const StudentSession: React.FC = () => {
               <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">
                 <strong>Session Policy:</strong> Resource access events are recorded for live monitoring.
               </div>
-              <p className="text-sm text-slate-500">The desktop agent is currently enforcing restrictions on the following domains.</p>
+              <p className="text-sm text-slate-500">The session policy includes these domains. Enroll and run the desktop agent to enforce it.</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {monitoredResources.map((resource: string, index: number) => (
                   <div
@@ -210,7 +201,7 @@ export const StudentSession: React.FC = () => {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-slate-500">Status</span>
-                <span className="font-bold text-emerald-500">Live</span>
+                <span className="font-bold text-emerald-500">Scheduled live</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-slate-500">Ends At</span>
@@ -218,9 +209,7 @@ export const StudentSession: React.FC = () => {
               </div>
               <div className="pt-4 border-t border-slate-100 dark:border-slate-700">
                 <p className="text-xs text-slate-400 mb-2">Policy Status</p>
-                <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded">
-                  <CheckCircle size={16} /> Compliant
-                </div>
+                <div className="text-sm text-slate-600 dark:text-slate-300">Check the local agent for enforcement status.</div>
               </div>
             </div>
           </Card>
@@ -231,6 +220,7 @@ export const StudentSession: React.FC = () => {
 
   return (
     <div className="space-y-8 animate-fade-in">
+      <DeviceEnrollmentPanel />
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-brand-600 to-blue-700 rounded-2xl p-8 text-white shadow-xl">
         <div>
           <h1 className="text-3xl font-bold mb-2">Welcome back, {userName}</h1>
@@ -241,7 +231,7 @@ export const StudentSession: React.FC = () => {
         <div className="hidden md:block bg-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/20">
           <p className="text-sm font-medium text-brand-100 uppercase tracking-wider mb-1">Compliance Status</p>
           <div className="flex items-center gap-2 text-emerald-300 font-bold text-lg">
-            <CheckCircle size={20} /> System Ready
+            <CheckCircle size={20} /> Account Ready
           </div>
         </div>
       </div>
@@ -260,7 +250,7 @@ export const StudentSession: React.FC = () => {
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
                   <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-500 text-white animate-pulse">LIVE SESSION</span>
-                  <span className="text-sm text-slate-500 dark:text-slate-400 font-mono">Code: {batchCode || 'PUBLIC'}</span>
+                  <span className="text-sm text-slate-500 dark:text-slate-400 font-mono">Batch code: {batchCode || 'Unavailable'}</span>
                 </div>
                 <h3 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">{activeSession.title}</h3>
                 <p className="text-slate-500 dark:text-slate-400 flex items-center gap-2">

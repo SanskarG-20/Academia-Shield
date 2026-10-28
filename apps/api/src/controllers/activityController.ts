@@ -7,27 +7,7 @@ import { sendError, sendSuccess } from '../utils/apiResponse';
 import { emitStudentActivityUpdate } from '../services/socketService';
 import { getIO } from '../services/socketService';
 import { calculateAttentionScore, getScoreLabel, getScoreColor } from '../utils/attentionScore';
-
-const findActiveSessionsForStudent = async (
-  studentId: mongoose.Types.ObjectId,
-  joinedBatchIds: mongoose.Types.ObjectId[] = [],
-  projection = '_id title ruleSetId'
-) => {
-  const batchAccessQueries: any[] = [
-    { batchIds: { $exists: false } },
-    { batchIds: { $size: 0 } },
-  ];
-
-  if (joinedBatchIds.length > 0) {
-    batchAccessQueries.push({ batchIds: { $in: joinedBatchIds } });
-  }
-
-  return Session.find({
-    status: 'Active',
-    joinedStudentIds: studentId,
-    $or: batchAccessQueries,
-  }).select(projection);
-};
+import { eligibleSessions } from '../services/devicePolicy';
 
 const parseDate = (val: any): Date => {
   if (val instanceof Date) return val;
@@ -41,37 +21,20 @@ const parseDate = (val: any): Date => {
 
 export const ingestActivityBatch = async (req: Request, res: Response) => {
   try {
-    const { sapId, events } = req.body;
-
-    const normalizedSapId = String(sapId || '').trim();
-    if (!normalizedSapId) {
-      return sendError(res, 'sapId is required', 400);
-    }
+    const { events } = req.body;
 
     if (!Array.isArray(events)) {
       return sendError(res, 'events must be an array', 400);
     }
 
-    const student = await Student.findOne({ sapId: normalizedSapId }).select('_id name joinedBatches');
+    const device = (req as any).device;
+    const student = await Student.findById(device.studentId).select('_id name sapId joinedBatches');
     if (!student) {
       return sendError(res, 'Student not found', 404);
     }
 
-    // B1 FIX: When the caller authenticated via a user JWT (student browser),
-    // verify their identity matches the sapId they claim to be reporting for.
-    // Desktop agents using X-Agent-Secret don't populate req.user, so they pass through.
-    const authUser = (req as any).user;
-    if (authUser && authUser.role === 'student' && String(student._id) !== String(authUser.id)) {
-      return sendError(res, 'Not authorized to report activity for this student', 403);
-    }
-
     const studentId = student._id as mongoose.Types.ObjectId;
-    
-    const activeSessions = await findActiveSessionsForStudent(
-      studentId,
-      (student.joinedBatches || []) as mongoose.Types.ObjectId[],
-      '_id'
-    );
+    const activeSessions = await eligibleSessions(studentId);
 
     if (activeSessions.length === 0) {
       return sendSuccess(res, { inserted: 0, sessions: 0 }, 'No active sessions', 201);
@@ -80,7 +43,7 @@ export const ingestActivityBatch = async (req: Request, res: Response) => {
     const sessionIds = activeSessions.map((s) => s._id);
     const documentsToInsert: any[] = [];
 
-    for (const event of events) {
+    for (const event of events.slice(0, 100)) {
       let eventType = 'APP_FOCUS';
       if (event.status === 'BLOCKED') {
         eventType = 'DOMAIN_BLOCKED';
@@ -99,7 +62,7 @@ export const ingestActivityBatch = async (req: Request, res: Response) => {
           sessionId,
           studentId,
           studentName: student.name,
-          sapId: normalizedSapId,
+          sapId: student.sapId,
           eventType,
           application: String(event.application || 'Unknown').trim(),
           domain: event.domain ? String(event.domain).trim().toLowerCase() : undefined,
@@ -119,7 +82,7 @@ export const ingestActivityBatch = async (req: Request, res: Response) => {
     }
     
     emitStudentActivityUpdate(sessionIds.map(String), {
-      sapId: normalizedSapId,
+      sapId: student.sapId,
       studentId: String(studentId),
       eventsCount: events.length,
     });
@@ -145,7 +108,7 @@ export const ingestActivityBatch = async (req: Request, res: Response) => {
 
         io.to(String(sessionId)).emit('attention_update', {
           studentId: String(studentId),
-          sapId: normalizedSapId,
+          sapId: student.sapId,
           score,
           label,
           color,

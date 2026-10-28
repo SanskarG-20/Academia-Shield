@@ -268,11 +268,11 @@ export const Rules: React.FC = () => {
             <textarea
               className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg py-2.5 px-4 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-colors duration-200"
               rows={3}
-              placeholder="e.g. Calculator, Spotify, Steam (Comma separated)"
+              placeholder="e.g. chrome.exe, spotify.exe (Comma separated)"
               value={formData.applications}
               onChange={(e) => setFormData({...formData, applications: e.target.value})}
             />
-            <p className="mt-1 text-xs text-slate-500">Separate application names with commas.</p>
+            <p className="mt-1 text-xs text-slate-500">Use exact executable names (such as chrome.exe), separated by commas. The Windows agent requests a normal close and allows unsaved-work prompts; it never force-kills apps.</p>
           </div>
         </div>
       </Modal>
