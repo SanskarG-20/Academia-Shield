@@ -40,6 +40,7 @@ const SessionSchema = new Schema<ISession>({
 }, { timestamps: true });
 
 SessionSchema.index({ status: 1, startTime: 1, endTime: 1 });
-SessionSchema.index({ joinedStudentIds: 1, batchIds: 1, status: 1 });
+SessionSchema.index({ joinedStudentIds: 1, status: 1 });
+SessionSchema.index({ batchIds: 1, status: 1 });
 
 export default mongoose.model<ISession>('Session', SessionSchema);
