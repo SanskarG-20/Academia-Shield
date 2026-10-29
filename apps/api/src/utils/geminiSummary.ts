@@ -32,7 +32,7 @@ function generateFallbackSummary(data: SessionSummaryInput): string {
 }
 
 /**
- * Generates an AI-powered post-session summary using Gemini 1.5 Flash.
+ * Generates an AI-powered post-session summary using the configured Gemini model.
  * Returns a concise 3-4 sentence professional summary.
  */
 export async function generateSessionSummary(data: SessionSummaryInput): Promise<string> {
@@ -68,15 +68,16 @@ Be direct and professional. No bullet points. Plain paragraph only.`;
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' });
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
     return text && text.trim().length > 0 ? text.trim() : generateFallbackSummary(data);
-  } catch (error: any) {
-    console.error('[Gemini] Error generating session summary:', error?.message || error);
+  } catch {
+    // SDK errors can contain request URLs; do not risk logging the API key.
+    console.error('[Gemini] Summary generation failed; using rule-based fallback.');
     return generateFallbackSummary(data);
   }
 }
