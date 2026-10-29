@@ -134,15 +134,6 @@ export const SessionCard: React.FC<SessionCardProps> = ({
                 </Button>
               )}
 
-              {session.status.toLowerCase() !== 'completed' && (
-                <button
-                  className="text-brand-600 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300 p-2 rounded-full hover:bg-brand-50 dark:hover:bg-brand-900/10 transition-colors ml-2"
-                  onClick={() => (onOpenSummary ? onOpenSummary(session) : onGenerateSummary(session))}
-                  title="AI Summary"
-                >
-                  <Sparkles size={18} />
-                </button>
-              )}
               <button
                 className="text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/10"
                 onClick={() => onDeleteSession(sessionId)}

@@ -13,12 +13,15 @@ const Rule = require('../dist/models/Rule').default;
 const Batch = require('../dist/models/Batch').default;
 const Claim = require('../dist/models/EnrollmentClaim').default;
 const Otp = require('../dist/models/Otp').default;
-const { requestOtp } = require('../dist/controllers/authController');
+const ActivityEvent = require('../dist/models/ActivityEvent').default;
+const { aggregateSessionData } = require('../dist/utils/sessionAnalytics');
+const { generateSessionSummary } = require('../dist/utils/geminiSummary');
+const { requestOtp, createStudentProfile } = require('../dist/controllers/authController');
 const clock = require('../dist/services/sessionClock');
 const { authenticateDevice, deviceAuth, hashCredential } = require('../dist/middleware/deviceAuth');
 const { policyForDevice } = require('../dist/services/devicePolicy');
 const { enrollDevice } = require('../dist/controllers/enrollmentController');
-const { createSession, joinSession, getSessionCoverage } = require('../dist/controllers/sessionController');
+const { createSession, joinSession, getSessionCoverage, getSessionSummary } = require('../dist/controllers/sessionController');
 const { authorize } = require('../dist/middleware/auth');
 const { classifyCoverage, FRESH_MS } = require('../dist/services/sessionCoverage');
 const { createRule } = require('../dist/controllers/ruleController');
@@ -29,6 +32,50 @@ const app = require('../dist/app').default;
 function response() {
   return { code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
 }
+
+test('session summary does not treat missing agent telemetry as focus', async t => {
+  const sessionId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+  t.mock.method(Session, 'findById', () => ({ select: async () => ({
+    title: 'Test Lab', startTime: new Date(0), endTime: new Date(60 * 60 * 1000),
+    batchIds: ['batch-a'], joinedStudentIds: ['student-a'],
+  }) }));
+  t.mock.method(Batch, 'find', () => ({ select: () => ({ lean: async () => [{ students: ['student-a', 'student-b'] }] }) }));
+  t.mock.method(ActivityEvent, 'aggregate', async () => []);
+  const data = await aggregateSessionData(sessionId);
+  assert.equal(data.totalStudents, 2);
+  assert.equal(data.observedStudents, 0);
+  assert.equal(data.unobservedStudents, 2);
+  assert.equal(data.focusedCount, 0);
+  const previousKey = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  t.after(() => { if (previousKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = previousKey; });
+  const summary = await generateSessionSummary(data);
+  assert.match(summary, /no agent activity was recorded/i);
+  assert.match(summary, /no conclusions about student focus/i);
+});
+
+test('session summary rejects active sessions before generating or caching', async t => {
+  t.mock.method(clock, 'reconcileSessions', async () => ({ started: 0, ended: 0 }));
+  t.mock.method(Session, 'findById', () => ({ select: async () => ({ professorId: 'prof-a', status: 'Active' }) }));
+  const res = response();
+  await getSessionSummary({ params: { id: 'aaaaaaaaaaaaaaaaaaaaaaaa' }, user: { id: 'prof-a', role: 'professor' } }, res);
+  assert.equal(res.code, 409);
+});
+
+test('legacy cached summary is replaced with a factual no-telemetry report', async t => {
+  t.mock.method(clock, 'reconcileSessions', async () => ({ started: 0, ended: 0 }));
+  t.mock.method(Session, 'findById', () => ({ select: async fields => fields.includes('summaryVersion')
+    ? { professorId: 'prof-a', status: 'Completed', aiSummary: 'All students focused', summaryVersion: undefined }
+    : { title: 'Test Lab', startTime: new Date(0), endTime: new Date(60 * 60 * 1000), batchIds: [], joinedStudentIds: ['student-a'] } }));
+  t.mock.method(ActivityEvent, 'aggregate', async () => []);
+  let replacement;
+  t.mock.method(Session, 'updateOne', async (_query, update) => { replacement = update.$set; return { modifiedCount: 1 }; });
+  const res = response();
+  await getSessionSummary({ params: { id: 'aaaaaaaaaaaaaaaaaaaaaaaa' }, user: { id: 'prof-a', role: 'professor' } }, res);
+  assert.equal(res.code, 200);
+  assert.match(res.body.data.aiSummary, /no agent activity was recorded/i);
+  assert.equal(replacement.summaryVersion, 2);
+});
 
 test('desktop app origin is allowed without accepting arbitrary local origins', async t => {
   const previousMode = process.env.NODE_ENV;
@@ -115,10 +162,13 @@ test('OTP is never returned when DEMO_MODE is off', async t => {
   t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));
   t.mock.method(Otp, 'deleteMany', async () => ({}));
   t.mock.method(Otp, 'create', async () => ({}));
-  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS };
+  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS, EMAIL_SERVICE: process.env.EMAIL_SERVICE, STUDENT_EMAIL_DOMAIN: process.env.STUDENT_EMAIL_DOMAIN };
   process.env.DEMO_MODE = 'false';
   process.env.EMAIL_USER = 'test@example.invalid';
   process.env.EMAIL_PASS = 'synthetic-test-value';
+  process.env.EMAIL_SERVICE = 'synthetic';
+  process.env.STUDENT_EMAIL_DOMAIN = 'university.example';
+  t.mock.method(Student, 'findOne', () => ({ select: async () => null }));
   const email = require('../dist/utils/email');
   t.mock.method(email, 'sendEmail', async () => undefined);
   try {
@@ -137,10 +187,13 @@ test('failed SMTP never falls back to a returned mock OTP', async t => {
   t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));
   t.mock.method(Otp, 'deleteMany', async () => ({}));
   t.mock.method(Otp, 'create', async () => ({}));
-  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS };
+  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS, EMAIL_SERVICE: process.env.EMAIL_SERVICE, STUDENT_EMAIL_DOMAIN: process.env.STUDENT_EMAIL_DOMAIN };
   process.env.DEMO_MODE = 'false';
   process.env.EMAIL_USER = 'test@example.invalid';
   process.env.EMAIL_PASS = 'synthetic-test-value';
+  process.env.EMAIL_SERVICE = 'synthetic';
+  process.env.STUDENT_EMAIL_DOMAIN = 'university.example';
+  t.mock.method(Student, 'findOne', () => ({ select: async () => null }));
   const email = require('../dist/utils/email');
   t.mock.method(email, 'sendEmail', async () => { throw new Error('synthetic delivery failure'); });
   try {
@@ -155,10 +208,11 @@ test('failed SMTP never falls back to a returned mock OTP', async t => {
 
 test('OTP request returns 503 without SMTP when DEMO_MODE is off', async t => {
   t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));
-  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS };
+  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS, EMAIL_SERVICE: process.env.EMAIL_SERVICE };
   delete process.env.DEMO_MODE;
   delete process.env.EMAIL_USER;
   delete process.env.EMAIL_PASS;
+  delete process.env.EMAIL_SERVICE;
   try {
     const res = response();
     await requestOtp({ body: { sapId: '123456789012' } }, res);
@@ -167,6 +221,69 @@ test('OTP request returns 503 without SMTP when DEMO_MODE is off', async t => {
   } finally {
     for (const [key, value] of Object.entries(prior)) value === undefined ? delete process.env[key] : process.env[key] = value;
   }
+});
+
+test('new student OTP refuses an unknown email mapping without creating a code', async t => {
+  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS, EMAIL_SERVICE: process.env.EMAIL_SERVICE, STUDENT_EMAIL_DOMAIN: process.env.STUDENT_EMAIL_DOMAIN };
+  process.env.DEMO_MODE = 'false';
+  process.env.EMAIL_USER = 'test@example.invalid';
+  process.env.EMAIL_PASS = 'synthetic-test-value';
+  process.env.EMAIL_SERVICE = 'synthetic';
+  delete process.env.STUDENT_EMAIL_DOMAIN;
+  t.after(() => { for (const [key, value] of Object.entries(prior)) value === undefined ? delete process.env[key] : process.env[key] = value; });
+  t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));
+  t.mock.method(Student, 'findOne', () => ({ select: async () => null }));
+  t.mock.method(Otp, 'create', async () => { throw new Error('No OTP must be created'); });
+  const res = response();
+  await requestOtp({ body: { sapId: '123456789012' } }, res);
+  assert.equal(res.code, 503);
+  assert.equal(JSON.stringify(res.body).includes('mockOtp'), false);
+});
+
+test('existing student OTP is delivered to the stored address', async t => {
+  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS, EMAIL_SERVICE: process.env.EMAIL_SERVICE, STUDENT_EMAIL_DOMAIN: process.env.STUDENT_EMAIL_DOMAIN };
+  process.env.DEMO_MODE = 'false';
+  process.env.EMAIL_USER = 'sender@example.invalid';
+  process.env.EMAIL_PASS = 'synthetic-test-value';
+  process.env.EMAIL_SERVICE = 'synthetic';
+  delete process.env.STUDENT_EMAIL_DOMAIN;
+  t.after(() => { for (const [key, value] of Object.entries(prior)) value === undefined ? delete process.env[key] : process.env[key] = value; });
+  t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));
+  t.mock.method(Otp, 'deleteMany', async () => ({}));
+  t.mock.method(Otp, 'create', async () => ({}));
+  t.mock.method(Student, 'findOne', () => ({ select: async () => ({ email: 'registered@university.example' }) }));
+  const email = require('../dist/utils/email');
+  let destination;
+  t.mock.method(email, 'sendEmail', async to => { destination = to; });
+  const res = response();
+  await requestOtp({ body: { sapId: '123456789012' } }, res);
+  assert.equal(res.code, 200);
+  assert.equal(destination, 'registered@university.example');
+  assert.equal(JSON.stringify(res.body).includes('registered@university.example'), false);
+});
+
+test('student profile cannot replace its verified email with a supplied address', async () => {
+  const res = response();
+  await createStudentProfile({ user: { id: '123456789012', role: 'student_temp', email: 'verified@university.example' }, body: {
+    sapId: '123456789012', name: 'Student', email: 'attacker@example.invalid', department: 'CE', rollNumber: '1', year: '1',
+  } }, res);
+  assert.equal(res.code, 403);
+});
+
+test('new profile stores only the OTP-verified address from the signed session', async t => {
+  const previousSecret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = 'synthetic-test-only-secret';
+  t.after(() => { if (previousSecret === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = previousSecret; });
+  t.mock.method(Student, 'findOne', async () => null);
+  let created;
+  t.mock.method(Student, 'create', async payload => { created = payload; return { ...payload, _id: 'student-a' }; });
+  t.mock.method(Otp, 'deleteMany', async () => ({}));
+  const res = response();
+  await createStudentProfile({ user: { id: '123456789012', role: 'student_temp', email: 'verified@university.example' }, body: {
+    sapId: '123456789012', name: 'Student', department: 'CE', rollNumber: '1', year: '1',
+  } }, res);
+  assert.equal(res.code, 201);
+  assert.equal(created.email, 'verified@university.example');
 });
 
 test('device credential authenticates only its own non-revoked record', async t => {

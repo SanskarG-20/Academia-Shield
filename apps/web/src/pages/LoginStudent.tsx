@@ -1,25 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { GraduationCap, AlertCircle, Phone, Send, Hash } from 'lucide-react';
+import { GraduationCap, AlertCircle, Send, Hash } from 'lucide-react';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { requestStudentOtp } from '../lib/api';
 
 export const LoginStudent: React.FC = () => {
   const navigate = useNavigate();
-  const [phoneNumber, setPhoneNumber] = useState('');
   const [sapId, setSapId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    // Only allow numbers
-    if (/^\d*$/.test(value) && value.length <= 10) {
-      setPhoneNumber(value);
-      setError(null);
-    }
-  };
 
   const handleRequestOtp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,17 +21,10 @@ export const LoginStudent: React.FC = () => {
       return;
     }
 
-    // Phone Number Validation
-    if (phoneNumber.length !== 10) {
-      setError('Invalid Mobile Number. Please enter a 10-digit number.');
-      return;
-    }
-
     setIsLoading(true);
 
     try {
       const response = await requestStudentOtp(sapId);
-      localStorage.setItem('tempPhoneNumber', phoneNumber);
       localStorage.setItem('tempSapId', sapId);
       if (response?.mockOtp) {
         localStorage.setItem('tempMockOtp', response.mockOtp);
@@ -76,7 +59,7 @@ export const LoginStudent: React.FC = () => {
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Student Login & Registration</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">
-            Enter your SAP ID and mobile number to login or sign up.
+            Enter your SAP ID to request a verification code.
           </p>
         </div>
 
@@ -100,28 +83,12 @@ export const LoginStudent: React.FC = () => {
               autoFocus
             />
 
-            <div className="space-y-1">
-              <Input 
-                label="Mobile Number"
-                type="tel"
-                inputMode="numeric"
-                placeholder="e.g. 9876543210"
-                value={phoneNumber}
-                onChange={handlePhoneChange}
-                icon={<Phone size={16} />}
-                className="text-lg tracking-widest font-mono"
-                maxLength={10}
-              />
-              <p className="text-xs text-slate-400 text-right">
-                {phoneNumber.length}/10 digits
-              </p>
-            </div>
           </div>
 
           <Button 
             type="submit" 
             className="w-full py-3 text-base" 
-            disabled={isLoading || phoneNumber.length !== 10 || sapId.length !== 12}
+            disabled={isLoading || sapId.length !== 12}
             icon={isLoading ? null : <Send size={18} />}
           >
             {isLoading ? 'Sending Code...' : 'Login / Register'}

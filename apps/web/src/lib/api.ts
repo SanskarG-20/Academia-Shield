@@ -17,6 +17,7 @@ type ApiEnvelope<T> = {
 type StudentVerifyResponse = {
   requiresProfileSetup?: boolean;
   sapId?: string;
+  email?: string;
   user?: UserProfile;
   token: string;
 };
@@ -193,7 +194,7 @@ export async function verifyStudentOtp(sapId: string, otp: string) {
   if (data.requiresProfileSetup) {
     setAuthState(data.token, 'student_temp', {
       name: 'Student User',
-      email: `${sapId}@student.university.edu`,
+      email: data.email || '',
     });
     localStorage.setItem('tempSapId', sapId);
     return data;
@@ -209,7 +210,6 @@ export async function verifyStudentOtp(sapId: string, otp: string) {
 export async function createStudentProfile(payload: {
   sapId: string;
   name: string;
-  email: string;
   department: string;
   rollNumber: string;
   year: string;

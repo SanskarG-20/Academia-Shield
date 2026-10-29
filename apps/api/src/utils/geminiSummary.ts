@@ -4,6 +4,8 @@ export interface SessionSummaryInput {
   sessionTitle: string;
   duration: number; // minutes
   totalStudents: number;
+  observedStudents: number;
+  unobservedStudents: number;
   focusedCount: number; // avg score >= 70
   moderateCount: number; // avg score 40-69
   distractedCount: number; // avg score < 40
@@ -18,17 +20,23 @@ export interface SessionSummaryInput {
  * Fallback summary when Gemini API is unreachable or key is missing.
  */
 function generateFallbackSummary(data: SessionSummaryInput): string {
+  if (data.observedStudents === 0) {
+    return `During the ${data.duration}-minute session "${data.sessionTitle}", no agent activity was recorded for the ${data.totalStudents} enrolled or attending student(s). No conclusions about student focus can be drawn from this session. Verify device enrollment and connectivity before interpreting the activity report.`;
+  }
   const topDomains =
     data.topBlockedDomains.length > 0
       ? data.topBlockedDomains.map((d) => d.domain).join(', ')
-      : 'no major off-task sites';
+      : 'none recorded';
 
   const anomalyText =
     data.anomalousStudents > 0
       ? ` Note that ${data.anomalousStudents} student(s) exhibited anomalous distraction levels requiring proactive review.`
       : '';
 
-  return `During the ${data.duration}-minute session "${data.sessionTitle}", ${data.focusedCount} of ${data.totalStudents} students maintained high focus, while ${data.moderateCount} were moderately attentive and ${data.distractedCount} were frequently distracted. A total of ${data.totalBlockedAttempts} blocked attempts were recorded, with peak distractions occurring around ${data.peakDistractionWindow || 'mid-session'} primarily directed towards ${topDomains}.${anomalyText} It is recommended to reinforce activity expectations during peak intervals and review blocked rule lists for emerging distractions.`;
+  const blockedText = data.totalBlockedAttempts > 0
+    ? `A total of ${data.totalBlockedAttempts} blocked attempts were recorded, primarily involving ${topDomains}, with the peak around ${data.peakDistractionWindow}.`
+    : 'No blocked attempts were recorded.';
+  return `During the ${data.duration}-minute session "${data.sessionTitle}", agent activity was recorded for ${data.observedStudents} of ${data.totalStudents} student(s); ${data.unobservedStudents} had no activity data. Among observed students, ${data.focusedCount} had high attention scores, ${data.moderateCount} moderate scores, and ${data.distractedCount} low scores. ${blockedText}${anomalyText} Review device coverage before drawing conclusions about students without activity data.`;
 }
 
 /**
@@ -36,6 +44,8 @@ function generateFallbackSummary(data: SessionSummaryInput): string {
  * Returns a concise 3-4 sentence professional summary.
  */
 export async function generateSessionSummary(data: SessionSummaryInput): Promise<string> {
+  // With no telemetry, a factual coverage statement is safer than a model inference.
+  if (data.observedStudents === 0) return generateFallbackSummary(data);
   const topDomainsStr =
     data.topBlockedDomains.length > 0
       ? data.topBlockedDomains.map((d) => `${d.domain} (${d.attempts} attempts)`).join(', ')
@@ -46,17 +56,20 @@ Generate a concise, professional post-session report for a professor.
 
 Session: ${data.sessionTitle}
 Duration: ${data.duration} minutes
-Students: ${data.totalStudents} total — ${data.focusedCount} focused, ${data.moderateCount} moderate, ${data.distractedCount} distracted
+Students: ${data.totalStudents} enrolled or attending; ${data.observedStudents} with agent activity; ${data.unobservedStudents} without activity data
+Among observed students only: ${data.focusedCount} high attention scores, ${data.moderateCount} moderate, ${data.distractedCount} low
 Blocked attempts: ${data.totalBlockedAttempts} total
 Top distractions: ${topDomainsStr}
 Peak distraction window: ${data.peakDistractionWindow || 'None recorded'}
 Flagged students: ${data.anomalousStudents}
 
 Write a 3-4 sentence summary that:
-1. States overall class focus level
-2. Highlights peak distraction time and top distractions
-3. Notes any flagged students (without naming them)
-4. Gives one actionable recommendation for the professor
+1. Clearly states how many students had activity data and that students without activity data cannot be assessed
+2. Describes attention scores only for observed students; these scores are proxies, not proof of focus
+3. Mentions a peak time or top distraction only if one was recorded
+4. Notes flagged students if any, without naming them, and gives one actionable recommendation
+
+If zero students had activity data, explicitly say no focus conclusion can be drawn. Do not invent events, blocked attempts, or distractions.
 
 Be direct and professional. No bullet points. Plain paragraph only.`;
 

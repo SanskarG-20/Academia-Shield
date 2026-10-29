@@ -10,6 +10,7 @@ import { sendError, sendSuccess } from '../utils/apiResponse';
 
 const SAP_ID_REGEX = /^\d{12}$/;
 const OTP_REGEX = /^\d{6}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 
 /**
@@ -39,16 +40,17 @@ const resolveMockOtp = () => {
 
 const resolveOtpMode = (): 'email' | 'mock' | 'refused' => {
   if (process.env.DEMO_MODE === 'true') return 'mock';
-  return process.env.EMAIL_USER && process.env.EMAIL_PASS ? 'email' : 'refused';
+  return process.env.EMAIL_SERVICE && process.env.EMAIL_USER && process.env.EMAIL_PASS ? 'email' : 'refused';
 };
 
-const createOtpRecord = async (sapId: string, plainOtp: string) => {
+const createOtpRecord = async (sapId: string, plainOtp: string, email: string) => {
   const hashedOtp = await bcrypt.hash(plainOtp, 10);
   await Otp.deleteMany({ sapId });
 
   await Otp.create({
     sapId,
     code: hashedOtp,
+    email,
     expiresAt: new Date(Date.now() + 5 * 60 * 1000),
   });
 };
@@ -146,7 +148,7 @@ export const requestOtp = async (req: Request, res: Response) => {
 
     if (otpMode === 'refused') {
       console.error(
-         '[OTP] Email delivery is not configured. Set EMAIL_USER and EMAIL_PASS.'
+         '[OTP] Email delivery is not configured. Set EMAIL_SERVICE, EMAIL_USER, and EMAIL_PASS.'
       );
       return sendError(res, 'OTP delivery is not configured. Please contact your administrator.', 503);
     }
@@ -159,7 +161,7 @@ export const requestOtp = async (req: Request, res: Response) => {
 
     if (otpMode === 'mock') {
       const mockOtp = resolveMockOtp();
-      await createOtpRecord(sapId, mockOtp);
+      await createOtpRecord(sapId, mockOtp, `${sapId}@student.university.edu`);
 
       return sendSuccess(
         res,
@@ -172,10 +174,16 @@ export const requestOtp = async (req: Request, res: Response) => {
       );
     }
 
-    const otpCode = String(crypto.randomInt(100000, 1000000));
-    await createOtpRecord(sapId, otpCode);
+    const existingStudent = await Student.findOne({ sapId }).select('email');
+    const configuredDomain = (process.env.STUDENT_EMAIL_DOMAIN || '').trim().toLowerCase().replace(/^@/, '');
+    const studentEmail = existingStudent?.email?.trim().toLowerCase()
+      || (configuredDomain ? `${sapId}@${configuredDomain}` : '');
+    if (!EMAIL_REGEX.test(studentEmail) || studentEmail.endsWith('@student.university.edu')) {
+      return sendError(res, 'Student email delivery is not configured. Please contact your administrator.', 503);
+    }
 
-    const studentEmail = `${sapId}@student.university.edu`;
+    const otpCode = String(crypto.randomInt(100000, 1000000));
+    await createOtpRecord(sapId, otpCode, studentEmail);
     try {
       await sendEmail(studentEmail, 'Your Login OTP', `Your OTP is: ${otpCode}`);
       return sendSuccess(res, { sapId, otpMode: 'email' }, 'OTP sent successfully');
@@ -222,12 +230,16 @@ export const verifyOtp = async (req: Request, res: Response) => {
     const student = await Student.findOne({ sapId });
 
     if (!student) {
+      if (!validOtp.email || !EMAIL_REGEX.test(validOtp.email)) {
+        return sendError(res, 'Verification destination is unavailable. Request a new code.', 400);
+      }
       return sendSuccess(
         res,
         {
           requiresProfileSetup: true,
           sapId,
-          token: generateToken(sapId, 'student_temp', '15m'),
+          email: validOtp.email,
+          token: generateToken(sapId, 'student_temp', '15m', { email: validOtp.email }),
         },
         'OTP verified'
       );
@@ -262,7 +274,8 @@ export const verifyOtp = async (req: Request, res: Response) => {
 // @access  Private — requires the short-lived `student_temp` token issued by verifyOtp
 export const createStudentProfile = async (req: Request | any, res: Response) => {
   try {
-    const { name, email, department, rollNumber, year } = req.body;
+    const { name, department, rollNumber, year } = req.body;
+    const email = typeof req.user?.email === 'string' ? req.user.email.trim().toLowerCase() : '';
 
     // The SAP ID comes from the OTP-verified token, never from the request body —
     // otherwise this endpoint would mint a full student session for any SAP ID.
@@ -277,13 +290,20 @@ export const createStudentProfile = async (req: Request | any, res: Response) =>
       return sendError(res, 'sapId does not match your verified session', 403);
     }
 
-    if (!name || !email || !department || !rollNumber || !year) {
+    if (!name || !EMAIL_REGEX.test(email) || !department || !rollNumber || !year) {
       return sendError(res, 'All student profile fields are required', 400);
+    }
+
+    if (req.body?.email && String(req.body.email).trim().toLowerCase() !== email) {
+      return sendError(res, 'Profile email does not match the verified address', 403);
     }
 
     const studentExists = await Student.findOne({ sapId });
     if (studentExists) {
       return sendError(res, 'Student already exists', 400);
+    }
+    if (await Student.findOne({ email })) {
+      return sendError(res, 'This email is already linked to a student', 409);
     }
 
     const student = await Student.create({
@@ -414,9 +434,8 @@ export const updateMe = async (req: Request | any, res: Response) => {
         return sendError(res, 'Student not found', 404);
       }
 
-      const { name, email, department, rollNumber, year } = req.body;
+      const { name, department, rollNumber, year } = req.body;
       if (name) student.name = name;
-      if (email) student.email = email;
       if (department) student.department = department;
       if (rollNumber) student.rollNumber = rollNumber;
       if (year) student.year = year;

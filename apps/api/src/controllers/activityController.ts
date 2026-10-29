@@ -107,6 +107,7 @@ export const ingestActivityBatch = async (req: Request, res: Response) => {
         const color = getScoreColor(score);
 
         io.to(String(sessionId)).emit('attention_update', {
+          sessionId: String(sessionId),
           studentId: String(studentId),
           sapId: student.sapId,
           score,

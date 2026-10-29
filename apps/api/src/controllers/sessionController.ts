@@ -245,6 +245,7 @@ export const updateSessionStatus = async (req: Request | any, res: Response) => 
           await Session.findByIdAndUpdate(sessionIdStr, {
             aiSummary: summary,
             summaryGeneratedAt: new Date(),
+            summaryVersion: 2,
           });
           console.log(`[AI-Summary] Saved post-session summary for session ${sessionIdStr}`);
         })
@@ -380,7 +381,8 @@ export const getSessionSummary = async (req: Request | any, res: Response) => {
       return sendError(res, 'Invalid session ID format', 400);
     }
 
-    const session = await Session.findById(id).select('professorId aiSummary summaryGeneratedAt');
+    await reconcileSessions();
+    const session = await Session.findById(id).select('professorId status aiSummary summaryGeneratedAt summaryVersion');
     if (!session) {
       return sendError(res, 'Session not found', 404);
     }
@@ -389,9 +391,13 @@ export const getSessionSummary = async (req: Request | any, res: Response) => {
       return sendError(res, 'Not authorized to view this summary', 403);
     }
 
+    if (session.status !== 'Completed') {
+      return sendError(res, 'Session summary is available after the session ends', 409);
+    }
+
     let stats = null;
-    let aiSummary = session.aiSummary || null;
-    let generatedAt = session.summaryGeneratedAt || null;
+    let aiSummary = session.summaryVersion === 2 ? session.aiSummary || null : null;
+    let generatedAt = aiSummary ? session.summaryGeneratedAt || null : null;
     try {
       const aggData = await aggregateSessionData(id);
       stats = {
@@ -404,8 +410,8 @@ export const getSessionSummary = async (req: Request | any, res: Response) => {
         aiSummary = await generateSessionSummary(aggData);
         generatedAt = new Date();
         await Session.updateOne(
-          { _id: id, professorId: req.user.id, aiSummary: { $exists: false } },
-          { $set: { aiSummary, summaryGeneratedAt: generatedAt } }
+          { _id: id, professorId: req.user.id, status: 'Completed', $or: [{ summaryVersion: { $ne: 2 } }, { aiSummary: { $in: [null, ''] } }] },
+          { $set: { aiSummary, summaryGeneratedAt: generatedAt, summaryVersion: 2 } }
         );
       }
     } catch (aggErr) {

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import Session from '../models/Session';
+import Batch from '../models/Batch';
 import ActivityEvent from '../models/ActivityEvent';
 import { calculateAttentionScore } from './attentionScore';
 import { detectAnomalies } from './anomalyDetection';
@@ -22,7 +23,7 @@ export async function aggregateSessionData(sessionId: string): Promise<SessionSu
 
   // 1. Fetch Session details
   const session = await Session.findById(sessionObjId).select(
-    'title startTime endTime joinedStudentIds'
+    'title startTime endTime batchIds joinedStudentIds'
   );
 
   const sessionTitle = session?.title || 'Classroom Session';
@@ -60,15 +61,18 @@ export async function aggregateSessionData(sessionId: string): Promise<SessionSu
     { blockedAttempts: number; events: any[]; score: number }
   >();
 
-  // Baseline from session.joinedStudentIds (if any)
-  if (session?.joinedStudentIds && Array.isArray(session.joinedStudentIds)) {
-    for (const sid of session.joinedStudentIds) {
-      studentMap.set(sid.toString(), { blockedAttempts: 0, events: [], score: 100 });
+  // Attendance and enrollment do not imply that the agent observed activity.
+  const rosterIds = new Set<string>((session?.joinedStudentIds || []).map((id) => id.toString()));
+  if (session?.batchIds?.length) {
+    const batches = await Batch.find({ _id: { $in: session.batchIds } }).select('students').lean();
+    for (const batch of batches) {
+      for (const studentId of batch.students || []) rosterIds.add(studentId.toString());
     }
   }
 
   for (const s of studentAgg) {
     const sId = s._id.toString();
+    rosterIds.add(sId);
     const score = calculateAttentionScore(s.events);
     studentMap.set(sId, {
       blockedAttempts: s.blockedAttempts || 0,
@@ -93,7 +97,9 @@ export async function aggregateSessionData(sessionId: string): Promise<SessionSu
     }
   }
 
-  const totalStudents = Math.max(studentMap.size, 1);
+  const observedStudents = studentMap.size;
+  const totalStudents = rosterIds.size;
+  const unobservedStudents = Math.max(0, totalStudents - observedStudents);
 
   // 3. Top blocked domains (limit 3)
   const topBlockedDomainsAgg = await ActivityEvent.aggregate([
@@ -204,6 +210,8 @@ export async function aggregateSessionData(sessionId: string): Promise<SessionSu
     sessionTitle,
     duration,
     totalStudents,
+    observedStudents,
+    unobservedStudents,
     focusedCount,
     moderateCount,
     distractedCount,

@@ -9,28 +9,27 @@ export const LoginStudentOTP: React.FC = () => {
   const navigate = useNavigate();
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [timer, setTimer] = useState(60);
-  const [phoneNumber, setPhoneNumber] = useState('');
+  const [timer, setTimer] = useState(300);
+  const [resendCooldown, setResendCooldown] = useState(60);
   const [sapId, setSapId] = useState('');
   const [mockOtp, setMockOtp] = useState('');
 
   useEffect(() => {
     // Retrieve Login Details
-    const storedPhone = localStorage.getItem('tempPhoneNumber');
     const storedSapId = localStorage.getItem('tempSapId');
     const storedMockOtp = localStorage.getItem('tempMockOtp');
     
-    if (!storedPhone) {
+    if (!storedSapId) {
       navigate('/login/student');
       return;
     }
-    setPhoneNumber(storedPhone);
-    if (storedSapId) setSapId(storedSapId);
+    setSapId(storedSapId);
     if (storedMockOtp) setMockOtp(storedMockOtp);
 
     // Countdown Timer
     const interval = setInterval(() => {
       setTimer((prev) => (prev > 0 ? prev - 1 : 0));
+      setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
 
     return () => clearInterval(interval);
@@ -55,13 +54,14 @@ export const LoginStudentOTP: React.FC = () => {
   };
 
   const handleResend = async () => {
-    if (timer > 0) return;
-    setTimer(60);
+    if (resendCooldown > 0) return;
 
     if (!sapId) return;
 
     try {
       const response = await requestStudentOtp(sapId);
+      setTimer(300);
+      setResendCooldown(60);
       if (response?.mockOtp) {
         setMockOtp(response.mockOtp);
         localStorage.setItem('tempMockOtp', response.mockOtp);
@@ -89,7 +89,7 @@ export const LoginStudentOTP: React.FC = () => {
            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Security Verification</h2>
            <div className="text-slate-500 dark:text-slate-400 text-sm mt-3 bg-slate-50 dark:bg-slate-900/50 py-3 px-4 rounded-lg border border-slate-100 dark:border-slate-700 inline-block">
              <p>SAP ID: <strong className="text-slate-700 dark:text-slate-200">{sapId}</strong></p>
-             <p>OTP sent to: <strong className="text-slate-700 dark:text-slate-200">+91 {phoneNumber}</strong></p>
+             <p>{mockOtp ? 'Use the demo code below.' : 'Check your student email for the verification code.'}</p>
              {mockOtp && (
                <p className="mt-2 text-amber-600 dark:text-amber-400 font-semibold">
                  Demo OTP: {mockOtp}
@@ -109,13 +109,13 @@ export const LoginStudentOTP: React.FC = () => {
             <div className="flex items-center justify-between text-sm">
                <div className={`flex items-center gap-1.5 ${timer > 0 ? 'text-slate-500' : 'text-red-500'}`}>
                  <Clock size={14} />
-                 <span>{timer > 0 ? `Expires in 00:${timer.toString().padStart(2, '0')}` : 'Code Expired'}</span>
+               <span>{timer > 0 ? `Expires in ${Math.floor(timer / 60)}:${(timer % 60).toString().padStart(2, '0')}` : 'Code expired'}</span>
                </div>
                <button 
                  onClick={handleResend}
-                 disabled={timer > 0}
+                 disabled={resendCooldown > 0}
                  className={`flex items-center gap-1.5 font-medium transition-colors ${
-                   timer > 0 ? 'text-slate-300 cursor-not-allowed' : 'text-brand-600 hover:text-brand-700 cursor-pointer'
+                   resendCooldown > 0 ? 'text-slate-300 cursor-not-allowed' : 'text-brand-600 hover:text-brand-700 cursor-pointer'
                  }`}
                >
                  <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />

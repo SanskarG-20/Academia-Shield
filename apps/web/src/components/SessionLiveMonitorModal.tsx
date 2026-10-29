@@ -122,7 +122,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                   studentId: s._id,
                   studentName: s.name || 'Enrolled Student',
                   sapId: s.sapId || '',
-                  activeApp: 'Not Joined Yet',
+                  activeApp: 'No device activity',
                   status: 'offline',
                   engagementScore: 0,
                   isViolation: false,
@@ -192,6 +192,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
 
     const onConnect = () => setSocketConnected(true);
     const onDisconnect = () => setSocketConnected(false);
+    setSocketConnected(socket.connected);
 
     // Student Joined Event
     const onStudentJoined = (data: any) => {
@@ -204,12 +205,12 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
           studentId: data.studentId,
           studentName: data.studentName || existing?.studentName || 'Student',
           sapId: data.sapId || existing?.sapId || '',
-          activeApp: 'Joined Session',
-          status: 'online',
-          engagementScore: 85,
-          isViolation: false,
-          lastSeen: new Date().toISOString(),
-          lastActivityAt: Date.now(), // ← KEY: real client-side timestamp
+          activeApp: existing?.lastActivityAt ? existing.activeApp : 'Attendance marked; no device activity',
+          status: existing?.status || 'offline',
+          engagementScore: existing?.engagementScore ?? 0,
+          isViolation: existing?.isViolation || false,
+          lastSeen: existing?.lastSeen || new Date(0).toISOString(),
+          lastActivityAt: existing?.lastActivityAt || 0,
         });
         return updated;
       });
@@ -288,7 +289,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
 
     // Attention score updates
     const onAttentionUpdate = (data: any) => {
-      if (!data?.studentId) return;
+      if (data?.sessionId !== session._id || !data?.studentId) return;
       setAttentionScores((prev) => {
         const updated = new Map(prev);
         updated.set(data.studentId, {
@@ -365,10 +366,10 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
   }));
   const onlineCount = studentList.filter((s) => s.status === 'online').length;
   const violationCount = studentList.filter((s) => s.isViolation).length;
-  const avgEngagement =
-    studentList.length > 0
-      ? Math.round(studentList.reduce((sum, s) => sum + s.engagementScore, 0) / studentList.length)
-      : 0;
+  const studentsWithTelemetry = studentList.filter(s => new Date(s.lastSeen).getTime() > 0);
+  const avgEngagement = studentsWithTelemetry.length > 0
+    ? Math.round(studentsWithTelemetry.reduce((sum, s) => sum + s.engagementScore, 0) / studentsWithTelemetry.length)
+    : null;
 
   const endTime = new Date(session.endTime);
   const now = new Date();
@@ -462,8 +463,8 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-slate-400">Avg Engagement</p>
-              <p className={`text-lg font-bold ${engagementTextColor(avgEngagement)}`}>
-                {avgEngagement}%
+              <p className={`text-lg font-bold ${avgEngagement === null ? 'text-slate-400' : engagementTextColor(avgEngagement)}`}>
+                {avgEngagement === null ? '—' : `${avgEngagement}%`}
               </p>
             </div>
           </div>
@@ -519,6 +520,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                   .map((student) => {
                     const presence = presenceConfig[student.status];
                     const flag = flaggedStudents.get(student.studentId);
+                    const hasTelemetry = new Date(student.lastSeen).getTime() > 0;
                     return (
                       <div
                         key={student.studentId}
@@ -620,12 +622,12 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
                         <div className="flex items-center gap-2">
                           <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all duration-500 ${engagementColor(student.engagementScore)}`}
-                              style={{ width: `${Math.min(100, student.engagementScore)}%` }}
+                              className={`h-full rounded-full transition-all duration-500 ${hasTelemetry ? engagementColor(student.engagementScore) : 'bg-slate-300'}`}
+                              style={{ width: `${hasTelemetry ? Math.min(100, student.engagementScore) : 0}%` }}
                             />
                           </div>
-                          <span className={`text-xs font-bold ${engagementTextColor(student.engagementScore)}`}>
-                            {student.engagementScore}%
+                          <span className={`text-xs font-bold ${hasTelemetry ? engagementTextColor(student.engagementScore) : 'text-slate-400'}`}>
+                            {hasTelemetry ? `${student.engagementScore}%` : '—'}
                           </span>
                         </div>
                       </div>

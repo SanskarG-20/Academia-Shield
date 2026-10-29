@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, BookOpen, Hash, CheckCircle, Phone } from 'lucide-react';
+import { User, BookOpen, Hash, CheckCircle } from 'lucide-react';
 import { Input, Select } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { createStudentProfile } from '../lib/api';
@@ -12,19 +12,13 @@ export const StudentProfile: React.FC = () => {
     department: '',
     rollNumber: '',
     yearOfStudy: '',
-    sapId: '',
-    phoneNumber: ''
+    sapId: ''
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // Load verified credentials from login session
-    const storedPhone = localStorage.getItem('tempPhoneNumber');
-    if (storedPhone) {
-        setFormData(prev => ({ ...prev, phoneNumber: storedPhone }));
-    }
-
     const storedSapId = localStorage.getItem('tempSapId');
     if (storedSapId) {
         setFormData(prev => ({ ...prev, sapId: storedSapId }));
@@ -53,7 +47,6 @@ export const StudentProfile: React.FC = () => {
       await createStudentProfile({
         sapId: formData.sapId,
         name: formData.fullName,
-        email: `${formData.sapId}@student.university.edu`,
         department: formData.department,
         rollNumber: formData.rollNumber,
         year: formData.yearOfStudy,
@@ -94,21 +87,13 @@ export const StudentProfile: React.FC = () => {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Verified Credentials Section */}
-              <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-700">
+              <div className="col-span-1 md:col-span-2 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-700">
                 <Input
-                  label="SAP ID (Verified)"
+                  label="SAP ID"
                   name="sapId"
                   value={formData.sapId}
                   disabled
                   icon={<Hash size={16} />}
-                  className="bg-white dark:bg-slate-800 text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-700"
-                />
-                <Input
-                  label="Mobile Number (Verified)"
-                  name="phoneNumber"
-                  value={formData.phoneNumber}
-                  disabled
-                  icon={<Phone size={16} />}
                   className="bg-white dark:bg-slate-800 text-slate-500 cursor-not-allowed border-slate-200 dark:border-slate-700"
                 />
               </div>

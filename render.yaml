@@ -16,6 +16,11 @@ services:
         sync: false
       - key: EMAIL_PASS
         sync: false
+      - key: EMAIL_SERVICE
+        sync: false
+      # Set only when new students have email addresses in the SAP_ID@domain format.
+      - key: STUDENT_EMAIL_DOMAIN
+        sync: false
       - key: FRONTEND_URL
         sync: false
       - key: GEMINI_API_KEY

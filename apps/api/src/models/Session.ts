@@ -21,6 +21,7 @@ export interface ISession extends Document {
   joinMode: 'auto' | 'opt-in';
   aiSummary?: string;
   summaryGeneratedAt?: Date;
+  summaryVersion?: number;
 }
 
 const SessionSchema = new Schema<ISession>({
@@ -37,6 +38,7 @@ const SessionSchema = new Schema<ISession>({
   joinMode: { type: String, enum: ['auto', 'opt-in'], default: 'opt-in' },
   aiSummary: { type: String },
   summaryGeneratedAt: { type: Date },
+  summaryVersion: { type: Number },
 }, { timestamps: true });
 
 SessionSchema.index({ status: 1, startTime: 1, endTime: 1 });

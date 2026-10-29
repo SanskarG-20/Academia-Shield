@@ -11,6 +11,7 @@ import {
   Users,
   Wifi
 } from 'lucide-react';
+import { disconnectSocket } from '../../lib/socket';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -22,6 +23,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true }) => {
   const isStudent = userRole === 'student';
 
   const handleLogout = () => {
+    disconnectSocket();
+    localStorage.removeItem('token');
     localStorage.removeItem('isAuthenticated');
     localStorage.removeItem('userRole');
     localStorage.removeItem('userName');
@@ -30,6 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = true }) => {
     localStorage.removeItem('professorProfile');
     localStorage.removeItem('tempSapId');
     localStorage.removeItem('tempPhoneNumber');
+    localStorage.removeItem('tempMockOtp');
     navigate('/');
   };
 
