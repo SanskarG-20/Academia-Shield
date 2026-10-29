@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GraduationCap, School, ChevronRight, ShieldCheck } from 'lucide-react';
+import { GraduationCap, School, ChevronRight, ShieldCheck, Download } from 'lucide-react';
 import { SpotlightCard } from '../components/ui/SpotlightCard';
 import { BlurText } from '../components/ui/BlurText';
 
@@ -71,6 +71,22 @@ export const SelectUser: React.FC = () => {
               </div>
             </div>
           </SpotlightCard>
+        </div>
+
+        <div className="mt-8 w-full max-w-3xl rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Student device agent</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              Download for Windows, then sign in to get a one-time device enrollment code. Installation and hosts-file access require administrator rights.
+            </p>
+          </div>
+          <a
+            href="https://github.com/SanskarG-20/Academia-Shield/releases/download/nightly/AcademiaShield.exe"
+            className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800 transition-colors"
+          >
+            <Download size={16} aria-hidden="true" />
+            Download Windows agent (.exe)
+          </a>
         </div>
 
         {/* Footer */}
