@@ -95,7 +95,29 @@ jobs:
             exit 1
           }
 
+      # A successful build alone does not make an executable safe to distribute.
+      # Keep CI builds available for verification, but publish only when BOTH
+      # the bundled agent and the installer have trusted Authenticode signatures.
+      - name: Check release signatures
+        id: signatures
+        shell: pwsh
+        run: |
+          $paths = @(
+            'services/agent/dist/AcademiaShield.exe',
+            'apps/desktop/release/AcademiaShieldSetup.exe'
+          )
+          $valid = $true
+          foreach ($path in $paths) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $path
+            if ($signature.Status -ne 'Valid') {
+              Write-Warning "$path has no trusted Authenticode signature; Windows release will not be published."
+              $valid = $false
+            }
+          }
+          "publish=$($valid.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
       - name: Create/Update Nightly Release
+        if: steps.signatures.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly

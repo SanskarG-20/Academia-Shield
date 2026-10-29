@@ -77,15 +77,15 @@ export const SelectUser: React.FC = () => {
           <div>
             <h2 className="text-base font-semibold text-slate-900 dark:text-white">Student device agent</h2>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              Download for Windows, then sign in to get a one-time device enrollment code. Installation and hosts-file access require administrator rights.
+              The Windows build is currently an unsigned preview. Please do not install it on a student or personal computer until signing and controlled device-safety testing are complete.
             </p>
           </div>
           <a
-            href="https://github.com/SanskarG-20/Academia-Shield/releases/download/nightly/AcademiaShieldSetup.exe"
+            href="https://github.com/SanskarG-20/Academia-Shield/releases/tag/nightly"
             className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 dark:focus:ring-offset-slate-800 transition-colors"
           >
             <Download size={16} aria-hidden="true" />
-            Download Windows app (.exe)
+            View Windows preview
           </a>
         </div>}
 

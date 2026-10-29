@@ -5,7 +5,7 @@
   [![Build Status](https://github.com/SanskarG-20/Academia-Shield/actions/workflows/build-agent.yml/badge.svg)](https://github.com/SanskarG-20/Academia-Shield/actions)
 
   [Live Web App](https://academia-shield.vercel.app/) • 
-  [Download Windows App](https://github.com/SanskarG-20/Academia-Shield/releases)
+  [Windows preview (unsigned)](https://github.com/SanskarG-20/Academia-Shield/releases)
 </div>
 
 <br />
@@ -77,7 +77,9 @@ npm run dev
 
 ## 📦 Windows Desktop Installation
 
-Download `AcademiaShieldSetup.exe` from the [nightly release](https://github.com/SanskarG-20/Academia-Shield/releases/tag/nightly) and run it on a Windows computer. It installs the React interface and the Python agent together. The shared API and MongoDB database remain hosted online. The installer needs administrator rights, and the same administrator-capable Windows account must be used to enroll the device. The desktop student sessions page can enroll the included agent directly using a one-time code. The agent begins at the next Windows sign-in.
+The current [nightly release](https://github.com/SanskarG-20/Academia-Shield/releases/tag/nightly) is an **unsigned preview**. Do not install it on student or personal computers. Obtain a trusted Windows code-signing certificate, sign both the agent and installer, and complete controlled Windows device-safety testing before distribution. The release workflow now refuses to publish future unsigned builds. A self-signed certificate does not resolve SmartScreen reputation warnings.
+
+When verified for distribution, `AcademiaShieldSetup.exe` installs the React interface and the Python agent together. The shared API and MongoDB database remain hosted online. The installer needs administrator rights, and the same administrator-capable Windows account must be used to enroll the device. The desktop student sessions page can enroll the included agent directly using a one-time code. The agent begins at the next Windows sign-in.
 
 Uninstalling the desktop app first invokes the agent's safe uninstall, which restores managed hosts/DNS settings. If restoration fails, the installer stops and retains the recovery files. The installer is currently unsigned; Windows may display a publisher warning.
 
@@ -107,6 +109,8 @@ Install and enroll under the **same Windows account**. This version requires tha
 - `AcademiaShield.exe logout` : Clear the local credential. Revoke the device in the dashboard when retiring it.
 
 The agent enforces only server-issued policy for its authenticated device. Policies and offline cache entries expire no later than the session's end time. New DNS redirection is disabled; recovery still restores DNS settings left by older agent versions. Application close requests never force-terminate a process, so an app with unsaved work may remain open. The API reconciles session start/end at startup and every five seconds, independent of browser timers. See [implementation specification](docs/device-bound-lab-sessions-spec.md) and [device safety audit](docs/agent-device-safety-audit.md).
+
+See [Windows release safety](docs/windows-release-safety.md) for the signing and controlled-test gates before distribution.
 
 ## 🛠️ Tech Stack
 
