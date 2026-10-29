@@ -11,8 +11,12 @@ export async function eligibleSessions(studentId: mongoose.Types.ObjectId, now =
   if (!joined.length) return [];
   return Session.find({
     status: 'Active', startTime: { $lte: now }, endTime: { $gt: now },
-    joinedStudentIds: studentId, batchIds: { $in: joined },
-  }).select('_id title startTime endTime professorId ruleSetId batchIds');
+    batchIds: { $in: joined },
+    $or: [
+      { joinMode: 'auto' },
+      { joinMode: { $ne: 'auto' }, joinedStudentIds: studentId },
+    ],
+  }).select('_id title startTime endTime professorId ruleSetId batchIds joinMode');
 }
 
 export async function policyForDevice(device: IDevice, now = new Date()) {

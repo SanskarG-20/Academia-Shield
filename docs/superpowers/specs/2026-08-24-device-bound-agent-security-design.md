@@ -136,7 +136,7 @@ The former `/identify` SAP-ID handoff is removed. Browser pages no longer reques
 5. Every subsequent config/report/heartbeat/socket request uses the device credential. The agent never sends SAP ID as identity.
 6. Successful re-enrollment replaces the local credential only after the API exchange succeeds; a failed exchange retains the current credential and policy state until normal expiry.
 
-The installer does not write a global `AGENT_SHARED_SECRET`; that setting and all source references are removed from the deployed path. A freshly installed agent is explicitly “un-enrolled” rather than failing with a missing shared secret.
+The installer does not write a global shared agent secret. A freshly installed agent is explicitly “un-enrolled” until paired with a student.
 
 ## Socket.IO Authentication and Authorization
 
@@ -264,7 +264,7 @@ Use `unittest`, temporary directories, mock HTTP responses, and a fake enforceme
 
 ### Repository checks
 
-Run production builds, API tests, Python tests, static scans for `AGENT_SHARED_SECRET` and accidental credential logging, and the existing syntax checks. Do not claim real frontend-to-backend-to-MongoDB or agent system-enforcement behavior until a separate safe runtime test is authorized.
+Run production builds, API tests, Python tests, static scans for obsolete shared-secret references and accidental credential logging, and the existing syntax checks. Do not claim real frontend-to-backend-to-MongoDB or agent system-enforcement behavior until a separate safe runtime test is authorized.
 
 ## Non-Goals and Limits
 

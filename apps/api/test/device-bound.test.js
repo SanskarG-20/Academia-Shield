@@ -11,11 +11,13 @@ const Professor = require('../dist/models/Professor').default;
 const Session = require('../dist/models/Session').default;
 const Rule = require('../dist/models/Rule').default;
 const Claim = require('../dist/models/EnrollmentClaim').default;
+const Otp = require('../dist/models/Otp').default;
+const { requestOtp } = require('../dist/controllers/authController');
 const clock = require('../dist/services/sessionClock');
 const { authenticateDevice, deviceAuth, hashCredential } = require('../dist/middleware/deviceAuth');
 const { policyForDevice } = require('../dist/services/devicePolicy');
 const { enrollDevice } = require('../dist/controllers/enrollmentController');
-const { joinSession } = require('../dist/controllers/sessionController');
+const { createSession, joinSession } = require('../dist/controllers/sessionController');
 const { createRule } = require('../dist/controllers/ruleController');
 const { authorizeSessionRoom, setupSocket } = require('../dist/services/socketService');
 const logRoutes = require('../dist/routes/logRoutes').default;
@@ -23,6 +25,64 @@ const logRoutes = require('../dist/routes/logRoutes').default;
 function response() {
   return { code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
 }
+
+test('OTP is never returned when DEMO_MODE is off', async t => {
+  t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));
+  t.mock.method(Otp, 'deleteMany', async () => ({}));
+  t.mock.method(Otp, 'create', async () => ({}));
+  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS };
+  process.env.DEMO_MODE = 'false';
+  process.env.EMAIL_USER = 'test@example.invalid';
+  process.env.EMAIL_PASS = 'synthetic-test-value';
+  const email = require('../dist/utils/email');
+  t.mock.method(email, 'sendEmail', async () => undefined);
+  try {
+    const res = response();
+    await requestOtp({ body: { sapId: '123456789012' } }, res);
+    assert.equal(res.code, 200);
+    assert.equal(JSON.stringify(res.body).includes('mockOtp'), false);
+    assert.equal(res.body.data.otpMode, 'email');
+    assert.equal(Object.hasOwn(res.body.data, 'otp'), false);
+  } finally {
+    for (const [key, value] of Object.entries(prior)) value === undefined ? delete process.env[key] : process.env[key] = value;
+  }
+});
+
+test('failed SMTP never falls back to a returned mock OTP', async t => {
+  t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));
+  t.mock.method(Otp, 'deleteMany', async () => ({}));
+  t.mock.method(Otp, 'create', async () => ({}));
+  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS };
+  process.env.DEMO_MODE = 'false';
+  process.env.EMAIL_USER = 'test@example.invalid';
+  process.env.EMAIL_PASS = 'synthetic-test-value';
+  const email = require('../dist/utils/email');
+  t.mock.method(email, 'sendEmail', async () => { throw new Error('synthetic delivery failure'); });
+  try {
+    const res = response();
+    await requestOtp({ body: { sapId: '123456789012' } }, res);
+    assert.equal(res.code, 502);
+    assert.equal(JSON.stringify(res.body).includes('mockOtp'), false);
+  } finally {
+    for (const [key, value] of Object.entries(prior)) value === undefined ? delete process.env[key] : process.env[key] = value;
+  }
+});
+
+test('OTP request returns 503 without SMTP when DEMO_MODE is off', async t => {
+  t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));
+  const prior = { DEMO_MODE: process.env.DEMO_MODE, EMAIL_USER: process.env.EMAIL_USER, EMAIL_PASS: process.env.EMAIL_PASS };
+  delete process.env.DEMO_MODE;
+  delete process.env.EMAIL_USER;
+  delete process.env.EMAIL_PASS;
+  try {
+    const res = response();
+    await requestOtp({ body: { sapId: '123456789012' } }, res);
+    assert.equal(res.code, 503);
+    assert.equal(JSON.stringify(res.body).includes('mockOtp'), false);
+  } finally {
+    for (const [key, value] of Object.entries(prior)) value === undefined ? delete process.env[key] : process.env[key] = value;
+  }
+});
 
 test('device credential authenticates only its own non-revoked record', async t => {
   const secret = crypto.randomBytes(32).toString('base64url');
@@ -57,7 +117,7 @@ test('policy queries are bound to the authenticated student and device', async t
   t.mock.method(Student, 'findById', id => ({ select: async () => ({ joinedBatches: [id === 'student-a' ? 'batch-a' : 'batch-b'] }) }));
   t.mock.method(Session, 'find', query => {
     seen.push(query);
-    const sid = String(query.joinedStudentIds);
+    const sid = String(query.$or[1].joinedStudentIds);
     const batch = query.batchIds.$in[0];
     return { select: async () => [{ _id: sid === 'student-a' ? 'session-a' : 'session-b', title: 'Lab', endTime: new Date(Date.now() + 60_000), professorId: 'prof-a', ruleSetId: sid === 'student-a' ? 'rule-a' : 'rule-b', batchIds: [batch] }] };
   });
@@ -68,10 +128,83 @@ test('policy queries are bound to the authenticated student and device', async t
   assert.deepEqual(b.blockedDomains, ['rule-b.example']);
   assert.equal(a.deviceId, 'device-a');
   assert.equal(b.deviceId, 'device-b');
-  assert.equal(seen[0].joinedStudentIds, 'student-a');
+  assert.equal(seen[0].$or[1].joinedStudentIds, 'student-a');
   assert.deepEqual(seen[1].batchIds.$in, ['batch-b']);
   assert.ok(new Date(a.expiresAt) <= new Date(a.active_sessions[0].ends_at));
   await assert.rejects(() => policyForDevice({ _id: 'revoked', studentId: 'student-a', revokedAt: new Date() }), /revoked/);
+});
+
+async function policyWithSessions(t, { joinedBatches = ['batch-a'], sessions = [], revokedAt = null, now = new Date() }) {
+  t.mock.method(clock, 'reconcileSessions', async () => ({ started: 0, ended: 0 }));
+  t.mock.method(Student, 'findById', () => ({ select: async () => ({ joinedBatches }) }));
+  t.mock.method(Session, 'find', query => ({ select: async () => sessions.filter(session =>
+    session.status === query.status &&
+    session.startTime <= query.startTime.$lte && session.endTime > query.endTime.$gt &&
+    session.batchIds.some(id => query.batchIds.$in.includes(id)) &&
+    (session.joinMode === 'auto' || session.joinedStudentIds.includes(query.$or[1].joinedStudentIds))
+  ) }));
+  t.mock.method(Rule, 'findOne', async () => ({ websites: ['blocked.example'], applications: [] }));
+  return policyForDevice({ _id: 'device-a', studentId: 'student-a', revokedAt }, now);
+}
+
+function labSession(overrides = {}) {
+  const now = Date.now();
+  return {
+    _id: 'session-a', title: 'Lab', status: 'Active', joinMode: 'auto',
+    startTime: new Date(now - 60_000), endTime: new Date(now + 60_000),
+    professorId: 'prof-a', ruleSetId: 'rule-a', batchIds: ['batch-a'],
+    joinedStudentIds: [], ...overrides,
+  };
+}
+
+test('auto session gives an enrolled batch member policy without attendance join', async t => {
+  const session = labSession();
+  const policy = await policyWithSessions(t, { sessions: [session] });
+  assert.equal(policy.active, true);
+  assert.deepEqual(policy.blockedDomains, ['blocked.example']);
+  assert.ok(new Date(policy.expiresAt) <= session.endTime);
+});
+
+test('session creation validates joinMode and defaults to opt-in', async t => {
+  const body = {
+    title: 'Lab', course: 'Course', type: 'Lab',
+    startTime: new Date(Date.now() + 60_000).toISOString(),
+    endTime: new Date(Date.now() + 120_000).toISOString(),
+    ruleSetId: 'aaaaaaaaaaaaaaaaaaaaaaaa', batchIds: ['bbbbbbbbbbbbbbbbbbbbbbbb'],
+  };
+  const invalid = response();
+  await createSession({ body: { ...body, joinMode: 'other' }, user: { id: 'prof-a' } }, invalid);
+  assert.equal(invalid.code, 400);
+  const created = [];
+  t.mock.method(require('../dist/models/Batch').default, 'countDocuments', async () => 1);
+  t.mock.method(Rule, 'exists', async () => true);
+  t.mock.method(Session, 'create', async data => { created.push(data); return data; });
+  await createSession({ body, user: { id: 'prof-a' } }, response());
+  await createSession({ body: { ...body, joinMode: 'auto' }, user: { id: 'prof-a' } }, response());
+  assert.deepEqual(created.map(item => item.joinMode), ['opt-in', 'auto']);
+});
+
+test('opt-in session without attendance join gives no policy', async t => {
+  const policy = await policyWithSessions(t, { sessions: [labSession({ joinMode: 'opt-in' })] });
+  assert.equal(policy.active, false);
+});
+
+test('student outside session batch gets no automatic policy', async t => {
+  const policy = await policyWithSessions(t, { joinedBatches: ['batch-b'], sessions: [labSession()] });
+  assert.equal(policy.active, false);
+});
+
+test('revoked device gets no automatic policy', async t => {
+  await assert.rejects(() => policyWithSessions(t, { sessions: [labSession()], revokedAt: new Date() }), /revoked/);
+});
+
+test('expired and future sessions give no automatic policy', async t => {
+  const now = new Date();
+  const policy = await policyWithSessions(t, { now, sessions: [
+    labSession({ endTime: new Date(now.getTime() - 1) }),
+    labSession({ startTime: new Date(now.getTime() + 60_000) }),
+  ] });
+  assert.equal(policy.active, false);
 });
 
 test('expired sessions never produce an active policy', async t => {

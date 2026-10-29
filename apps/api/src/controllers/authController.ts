@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import Professor from '../models/Professor';
 import Student from '../models/Student';
 import Otp from '../models/Otp';
@@ -10,7 +11,6 @@ import { sendError, sendSuccess } from '../utils/apiResponse';
 const SAP_ID_REGEX = /^\d{12}$/;
 const OTP_REGEX = /^\d{6}$/;
 
-const isProduction = () => process.env.NODE_ENV === 'production';
 
 /**
  * Email domains permitted to self-register as faculty on first login.
@@ -37,17 +37,9 @@ const resolveMockOtp = () => {
   return OTP_REGEX.test(configuredOtp) ? configuredOtp : '123456';
 };
 
-/**
- * Mock OTP mode is restricted to local development; production requires email.
- */
 const resolveOtpMode = (): 'email' | 'mock' | 'refused' => {
-  const mode = (process.env.STUDENT_OTP_MODE || '').toLowerCase();
-  if (isProduction()) return process.env.EMAIL_USER && process.env.EMAIL_PASS ? 'email' : 'refused';
-  if (mode === 'mock') return 'mock';
-  if (mode === 'email') return 'email';
-  // Dev/test: fall back to mock when SMTP is not configured
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) return 'mock';
-  return 'email';
+  if (process.env.DEMO_MODE === 'true') return 'mock';
+  return process.env.EMAIL_USER && process.env.EMAIL_PASS ? 'email' : 'refused';
 };
 
 const createOtpRecord = async (sapId: string, plainOtp: string) => {
@@ -150,19 +142,19 @@ export const requestOtp = async (req: Request, res: Response) => {
       return sendError(res, 'sapId must be exactly 12 digits', 400);
     }
 
-    // 60-second rate limit
-    const lastOtp = await Otp.findOne({ sapId }).sort({ createdAt: -1 });
-    if (lastOtp && (lastOtp as any).createdAt && (lastOtp as any).createdAt.getTime() > Date.now() - 60000) {
-      return sendError(res, 'Please wait 60 seconds before requesting another OTP', 429);
-    }
-
     const otpMode = resolveOtpMode();
 
     if (otpMode === 'refused') {
       console.error(
-         '[OTP] Email delivery is required in production. Set EMAIL_USER and EMAIL_PASS.'
+         '[OTP] Email delivery is not configured. Set EMAIL_USER and EMAIL_PASS.'
       );
       return sendError(res, 'OTP delivery is not configured. Please contact your administrator.', 503);
+    }
+
+    // 60-second rate limit
+    const lastOtp = await Otp.findOne({ sapId }).sort({ createdAt: -1 });
+    if (lastOtp && (lastOtp as any).createdAt && (lastOtp as any).createdAt.getTime() > Date.now() - 60000) {
+      return sendError(res, 'Please wait 60 seconds before requesting another OTP', 429);
     }
 
     if (otpMode === 'mock') {
@@ -180,31 +172,17 @@ export const requestOtp = async (req: Request, res: Response) => {
       );
     }
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = String(crypto.randomInt(100000, 1000000));
     await createOtpRecord(sapId, otpCode);
 
     const studentEmail = `${sapId}@student.university.edu`;
     try {
-      if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        throw new Error('SMTP credentials (EMAIL_USER / EMAIL_PASS) not configured');
-      }
       await sendEmail(studentEmail, 'Your Login OTP', `Your OTP is: ${otpCode}`);
       return sendSuccess(res, { sapId, otpMode: 'email' }, 'OTP sent successfully');
     } catch (emailError: any) {
       await Otp.deleteMany({ sapId });
-      if (isProduction()) return sendError(res, 'Could not deliver verification code', 502);
-      console.warn(`[OTP EMAIL FALLBACK] sapId=${sapId}: ${emailError.message}. Using demo OTP code.`);
-      const mockOtp = resolveMockOtp();
-      await createOtpRecord(sapId, mockOtp);
-      return sendSuccess(
-        res,
-        {
-          sapId,
-          otpMode: 'mock',
-          mockOtp,
-        },
-        'Verification code generated (demo mode)'
-      );
+      console.error('[OTP] Email delivery failed');
+      return sendError(res, 'Could not deliver verification code', 502);
     }
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to send OTP', 500);

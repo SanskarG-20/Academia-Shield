@@ -26,7 +26,11 @@ const canStudentAccessSession = (session: any, joinedBatchIds: string[]) => {
 // @route   POST /api/sessions
 export const createSession = async (req: Request | any, res: Response) => {
   try {
-    const { title, course, type, startTime, endTime, ruleSetId, batchIds } = req.body;
+    const { title, course, type, startTime, endTime, ruleSetId, batchIds, joinMode } = req.body;
+
+    if (joinMode !== undefined && !['auto', 'opt-in'].includes(joinMode)) {
+      return sendError(res, 'joinMode must be auto or opt-in', 400);
+    }
 
     if (!title || !course || !type || !startTime || !endTime || !ruleSetId) {
       return sendError(res, 'title, course, type, startTime, endTime and ruleSetId are required', 400);
@@ -53,6 +57,7 @@ export const createSession = async (req: Request | any, res: Response) => {
       ruleSetId,
       batchIds,
       professorId: req.user.id,
+      joinMode: joinMode ?? 'opt-in',
     });
 
     return sendSuccess(res, session, 'Session created successfully', 201);
@@ -370,6 +375,8 @@ export const getSessionSummary = async (req: Request | any, res: Response) => {
     }
 
     let stats = null;
+    let aiSummary = session.aiSummary || null;
+    let generatedAt = session.summaryGeneratedAt || null;
     try {
       const aggData = await aggregateSessionData(id);
       stats = {
@@ -378,6 +385,14 @@ export const getSessionSummary = async (req: Request | any, res: Response) => {
         peakDistractionWindow: aggData.peakDistractionWindow,
         anomalousStudents: aggData.anomalousStudents,
       };
+      if (!aiSummary) {
+        aiSummary = await generateSessionSummary(aggData);
+        generatedAt = new Date();
+        await Session.updateOne(
+          { _id: id, professorId: req.user.id, aiSummary: { $exists: false } },
+          { $set: { aiSummary, summaryGeneratedAt: generatedAt } }
+        );
+      }
     } catch (aggErr) {
       console.warn('[session-summary] Failed to aggregate session stats:', aggErr);
     }
@@ -385,8 +400,8 @@ export const getSessionSummary = async (req: Request | any, res: Response) => {
     return sendSuccess(
       res,
       {
-        aiSummary: session.aiSummary || null,
-        generatedAt: session.summaryGeneratedAt || null,
+        aiSummary,
+        generatedAt,
         stats,
       },
       'Session summary fetched successfully'
