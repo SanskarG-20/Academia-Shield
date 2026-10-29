@@ -7,6 +7,7 @@ import {
   deleteSession,
   checkSessionAnomalies,
   getSessionSummary,
+  getSessionCoverage,
 } from '../controllers/sessionController';
 import { protect, authorize } from '../middleware/auth';
 
@@ -21,5 +22,6 @@ router.post('/:id/join', protect, authorize('student'), joinSession);
 router.delete('/:id', protect, authorize('professor'), deleteSession);
 router.post('/:id/check-anomalies', protect, authorize('professor'), checkSessionAnomalies);
 router.get('/:id/summary', protect, authorize('professor'), getSessionSummary);
+router.get('/:id/coverage', protect, authorize('professor'), getSessionCoverage);
 
 export default router;

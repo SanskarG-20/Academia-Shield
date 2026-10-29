@@ -135,7 +135,7 @@ function setAuthState(
 async function handleResponse<T>(res: Response): Promise<T> {
   if (res.status === 401) {
     localStorage.clear();
-    window.location.href = '/select-user';
+    window.location.hash = '/select-user';
     throw new Error('Session expired. Please log in again.');
   }
 
@@ -382,6 +382,7 @@ export async function createSession(data: {
   endTime: string;
   ruleSetId: string;
   batchIds: string[];
+  joinMode: 'auto' | 'opt-in';
 }) {
   const session = await handleResponse<any>(
     await fetch(`${BASE_URL}/api/sessions`, {
@@ -412,6 +413,19 @@ export async function joinSession(id: string) {
       method: 'POST',
       headers: authHeaders(),
     })
+  );
+}
+
+export type SessionCoverage = {
+  sessionId: string;
+  freshMs: number;
+  summary: { total: number; active: number; enrolled_silent: number; not_enrolled: number; joined: number };
+  students: { studentId: string; name: string; sapId: string; joined: boolean; status: 'active' | 'enrolled_silent' | 'not_enrolled' }[];
+};
+
+export async function getSessionCoverage(id: string): Promise<SessionCoverage> {
+  return handleResponse<SessionCoverage>(
+    await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(id)}/coverage`, { headers: authHeaders() })
   );
 }
 

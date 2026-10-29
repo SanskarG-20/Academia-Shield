@@ -10,6 +10,7 @@ const Student = require('../dist/models/Student').default;
 const Professor = require('../dist/models/Professor').default;
 const Session = require('../dist/models/Session').default;
 const Rule = require('../dist/models/Rule').default;
+const Batch = require('../dist/models/Batch').default;
 const Claim = require('../dist/models/EnrollmentClaim').default;
 const Otp = require('../dist/models/Otp').default;
 const { requestOtp } = require('../dist/controllers/authController');
@@ -17,7 +18,9 @@ const clock = require('../dist/services/sessionClock');
 const { authenticateDevice, deviceAuth, hashCredential } = require('../dist/middleware/deviceAuth');
 const { policyForDevice } = require('../dist/services/devicePolicy');
 const { enrollDevice } = require('../dist/controllers/enrollmentController');
-const { createSession, joinSession } = require('../dist/controllers/sessionController');
+const { createSession, joinSession, getSessionCoverage } = require('../dist/controllers/sessionController');
+const { authorize } = require('../dist/middleware/auth');
+const { classifyCoverage, FRESH_MS } = require('../dist/services/sessionCoverage');
 const { createRule } = require('../dist/controllers/ruleController');
 const { authorizeSessionRoom, setupSocket } = require('../dist/services/socketService');
 const logRoutes = require('../dist/routes/logRoutes').default;
@@ -25,6 +28,69 @@ const logRoutes = require('../dist/routes/logRoutes').default;
 function response() {
   return { code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
 }
+
+test('coverage classifies batch members and attendance without revoked devices', () => {
+  const now = new Date();
+  const session = { _id: 'session-a', joinedStudentIds: ['student-b'] };
+  const batches = [{ students: ['student-a', 'student-b'] }, { students: ['student-c', 'student-a'] }];
+  const students = ['student-a', 'student-b', 'student-c'].map(_id => ({ _id, name: _id }));
+  const devices = [
+    { studentId: 'student-a', lastSeenAt: new Date(now.getTime() - FRESH_MS + 1) },
+    { studentId: 'student-b', lastSeenAt: new Date(now.getTime() - FRESH_MS - 1) },
+  ];
+  const result = classifyCoverage(session, batches, students, devices, now);
+  assert.deepEqual(result.students.map(student => [student.studentId, student.status, student.joined]), [
+    ['student-a', 'active', false], ['student-b', 'enrolled_silent', true], ['student-c', 'not_enrolled', false],
+  ]);
+  assert.deepEqual(result.summary, { total: 3, active: 1, enrolled_silent: 1, not_enrolled: 1, joined: 1 });
+});
+
+test('coverage route rejects non-owner professors and student roles', async t => {
+  t.mock.method(Session, 'findById', () => ({ select: () => ({ lean: async () => ({
+    _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', professorId: 'prof-a', batchIds: [], joinedStudentIds: [],
+  }) }) }));
+  const nonOwner = response();
+  await getSessionCoverage({ params: { id: 'aaaaaaaaaaaaaaaaaaaaaaaa' }, user: { id: 'prof-b', role: 'professor' } }, nonOwner);
+  assert.equal(nonOwner.code, 403);
+  const student = response();
+  authorize('professor')({ user: { id: 'student-a', role: 'student' } }, student, () => { throw new Error('student passed'); });
+  assert.equal(student.code, 403);
+});
+
+test('coverage lookup excludes revoked devices with grouped queries', async t => {
+  const { loadCoverages } = require('../dist/services/sessionCoverage');
+  t.mock.method(Batch, 'find', () => ({ select: () => ({ lean: async () => [{ _id: 'batch-a', students: ['student-a'] }] }) }));
+  t.mock.method(Student, 'find', () => ({ select: () => ({ lean: async () => [{ _id: 'student-a' }] }) }));
+  t.mock.method(Device, 'find', query => {
+    assert.equal(query.revokedAt, null);
+    return { select: () => ({ lean: async () => [] }) };
+  });
+  const [coverage] = await loadCoverages([{ _id: 'session-a', batchIds: ['batch-a'], joinedStudentIds: [] }]);
+  assert.equal(coverage.summary.not_enrolled, 1);
+});
+
+test('student socket cannot receive session coverage', async t => {
+  process.env.JWT_SECRET = 'test-only-secret-not-for-production';
+  const server = http.createServer();
+  const io = new Server(server, { cors: { origin: '*' } });
+  setupSocket(io);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => { await new Promise(resolve => io.close(resolve)); server.close(); });
+  t.mock.method(Student, 'exists', async () => true);
+  t.mock.method(Session, 'findById', () => ({ select: async () => ({ professorId: 'prof-a' }) }));
+  const token = jwt.sign({ id: 'student-a', role: 'student' }, process.env.JWT_SECRET, { expiresIn: '1m' });
+  const client = connect(`http://127.0.0.1:${server.address().port}`, { forceNew: true, reconnection: false, auth: { token } });
+  await new Promise(resolve => client.on('connect', resolve));
+  let received = false;
+  client.on('session_coverage', () => { received = true; });
+  const denied = new Promise(resolve => client.once('authorization_error', resolve));
+  client.emit('join_session', 'aaaaaaaaaaaaaaaaaaaaaaaa');
+  assert.equal((await denied).room, 'session');
+  io.to('aaaaaaaaaaaaaaaaaaaaaaaa').emit('session_coverage', { summary: { active: 1 } });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(received, false);
+  client.close();
+});
 
 test('OTP is never returned when DEMO_MODE is off', async t => {
   t.mock.method(Otp, 'findOne', () => ({ sort: async () => null }));

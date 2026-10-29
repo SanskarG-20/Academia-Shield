@@ -54,6 +54,7 @@ export interface Session {
   startTime: string;
   endTime: string;
   status: SessionStatus | string;
+  joinMode?: 'auto' | 'opt-in';
   ruleSetId?: string;
   batchIds: string[];
   professorId?: string;

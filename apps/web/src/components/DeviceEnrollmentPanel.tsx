@@ -34,6 +34,7 @@ export const DeviceEnrollmentPanel: React.FC = () => {
   return <section className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-5 space-y-3">
     <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Local agent enrollment</h2>
     <p className="text-sm text-slate-600 dark:text-slate-300">Install the Python agent on your own laptop, then enter a one-time code locally. The code expires after 10 minutes.</p>
+    <p className="text-sm text-slate-600 dark:text-slate-300">Sessions of batches you joined that use Auto enforcement apply their blocking and activity monitoring policy to this device during the scheduled time, without requiring you to mark attendance. Opt-in sessions require you to join first.</p>
     <Button onClick={issue} disabled={busy}>Generate enrollment code</Button>
     <Button variant="ghost" onClick={refresh} disabled={busy}>Refresh devices</Button>
     {claim && <div className="text-sm space-y-1">

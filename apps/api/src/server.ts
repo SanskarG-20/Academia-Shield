@@ -7,6 +7,7 @@ import { setupSocket } from './services/socketService';
 import Session from './models/Session';
 import { runAnomalyCheck } from './services/anomalyService';
 import { reconcileSessions } from './services/sessionClock';
+import { startCoverageBroadcast } from './services/sessionCoverage';
 
 const PORT = process.env.PORT || 5000;
 
@@ -55,12 +56,13 @@ const startServer = async () => {
     });
 
     await reconcileSessions();
-    setInterval(() => {
+    const stopCoverage = startCoverageBroadcast(io);
+    const sessionClockTimer = setInterval(() => {
       reconcileSessions().catch(error => console.error('[session-clock] reconciliation failed', error));
     }, 5000);
 
     // Schedule anomaly checks during active sessions (every 5 minutes)
-    setInterval(async () => {
+    const anomalyTimer = setInterval(async () => {
       try {
         const activeSessions = await Session.find({ status: { $in: ['Active', 'active'] } });
         for (const session of activeSessions) {
@@ -70,6 +72,13 @@ const startServer = async () => {
         console.error('Error running scheduled anomaly checks:', err);
       }
     }, 5 * 60 * 1000);
+    server.once('close', () => {
+      stopCoverage();
+      clearInterval(sessionClockTimer);
+      clearInterval(anomalyTimer);
+    });
+    process.once('SIGINT', () => server.close());
+    process.once('SIGTERM', () => server.close());
   } catch (error: any) {
     console.error(`❌ Unable to start server: ${error.message}`);
     process.exit(1);

@@ -17,6 +17,7 @@ import { getSocket, joinSession } from '../lib/socket';
 import { getLogs, getSessionLogs, getBatchById, checkSessionAnomalies } from '../lib/api';
 import StudentActivityModal from './StudentActivityModal';
 import AnomalyAlert from './AnomalyAlert';
+import { SessionCoveragePanel } from './SessionCoveragePanel';
 // ─── Types ─────────────────────────────────────────────────────────────────────
 interface StudentTelemetry {
   studentId: string;
@@ -494,6 +495,7 @@ export const SessionLiveMonitorModal: React.FC<SessionLiveMonitorModalProps> = (
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
           {/* Student Cards Grid */}
           <div className="flex-1 overflow-y-auto p-6">
+            <SessionCoveragePanel sessionId={session._id} />
             <h3 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4">
               Student Activity ({studentList.length})
             </h3>

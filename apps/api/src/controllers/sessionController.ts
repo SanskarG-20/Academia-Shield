@@ -10,8 +10,23 @@ import { getIO } from '../services/socketService';
 import { runAnomalyCheck } from '../services/anomalyService';
 import { aggregateSessionData } from '../utils/sessionAnalytics';
 import { generateSessionSummary } from '../utils/geminiSummary';
+import { loadCoverages } from '../services/sessionCoverage';
 
 const VALID_STATUSES = ['Upcoming', 'Active', 'Completed', 'Cancelled'];
+
+export const getSessionCoverage = async (req: Request | any, res: Response) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) return sendError(res, 'Session not found', 404);
+    const session = await Session.findById(req.params.id)
+      .select('_id professorId batchIds joinedStudentIds').lean();
+    if (!session) return sendError(res, 'Session not found', 404);
+    if (String(session.professorId) !== String(req.user.id)) return sendError(res, 'Not authorized for this session', 403);
+    const [coverage] = await loadCoverages([session]);
+    return sendSuccess(res, coverage, 'Session coverage fetched');
+  } catch {
+    return sendError(res, 'Unable to fetch session coverage', 500);
+  }
+};
 
 const canStudentAccessSession = (session: any, joinedBatchIds: string[]) => {
   if (!session.batchIds || session.batchIds.length === 0) {

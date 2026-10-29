@@ -16,7 +16,7 @@ import {
   Loader2 as Spinner,
 } from 'lucide-react';
 import { Batch, Session, SessionStatus } from '../types';
-import { getAgentConfig, getMe, getMyBatches, getSessions, joinSession } from '../lib/api';
+import { EnrolledDevice, getAgentConfig, getEnrolledDevices, getMe, getMyBatches, getSessions, joinSession } from '../lib/api';
 import { DeviceEnrollmentPanel } from '../components/DeviceEnrollmentPanel';
 
 export const StudentSession: React.FC = () => {
@@ -24,6 +24,7 @@ export const StudentSession: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [myBatches, setMyBatches] = useState<Batch[]>([]);
   const [agentConfig, setAgentConfig] = useState<any>(null);
+  const [devices, setDevices] = useState<EnrolledDevice[]>([]);
   const [hiddenSessionIds, setHiddenSessionIds] = useState<string[]>([]);
   const [isWorking, setIsWorking] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -35,17 +36,19 @@ export const StudentSession: React.FC = () => {
       if (showLoadingState) {
         setLoading(true);
       }
-      const [profile, sessionsData, myBatchesData, agentData] = await Promise.all([
+      const [profile, sessionsData, myBatchesData, agentData, enrolledDevices] = await Promise.all([
         getMe(),
         getSessions(),
         getMyBatches(),
         getAgentConfig(),
+        getEnrolledDevices(),
       ]);
 
       setUserName(profile.name || 'Student');
       setSessions(sessionsData);
       setMyBatches(myBatchesData);
       setAgentConfig(agentData);
+      setDevices(enrolledDevices);
       setError('');
     } catch (err: any) {
       if (showLoadingState) {
@@ -93,6 +96,20 @@ export const StudentSession: React.FC = () => {
   );
 
   const currentSession = sessions.find((session) => session._id === currentSessionId) || activeSession;
+
+  // The overview identifies eligible sessions; recent agent contact indicates an enrolled device is online.
+  const hasOnlineDevice = devices.some(device =>
+    !device.revokedAt && device.lastSeenAt && Date.now() - new Date(device.lastSeenAt).getTime() < 45_000
+  );
+  const policySession = hasOnlineDevice
+    ? sessions.find(session => agentConfig?.active_sessions?.some((active: { id: string }) => active.id === session._id))
+    : undefined;
+  const policyBanner = policySession && (
+    <div role="status" className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 p-4 text-sm text-emerald-800 dark:text-emerald-200">
+      <p className="font-semibold">{policySession.title} · Ends {new Date(policySession.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+      <p className="mt-1">Blocking and activity monitoring are active on your enrolled device.</p>
+    </div>
+  );
 
   useEffect(() => {
     if (!currentSessionId) return;
@@ -154,6 +171,7 @@ export const StudentSession: React.FC = () => {
   if (isWorking && currentSession) {
     return (
       <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
+        {policyBanner}
         <DeviceEnrollmentPanel />
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -220,6 +238,7 @@ export const StudentSession: React.FC = () => {
 
   return (
     <div className="space-y-8 animate-fade-in">
+      {policyBanner}
       <DeviceEnrollmentPanel />
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-brand-600 to-blue-700 rounded-2xl p-8 text-white shadow-xl">
         <div>
@@ -271,7 +290,7 @@ export const StudentSession: React.FC = () => {
                   icon={<Play size={20} />}
                   onClick={() => handleStartWorking(activeSession._id)}
                 >
-                  Start Working
+                  {activeSession.joinMode === 'auto' ? 'Mark attendance' : 'Join session'}
                 </Button>
               </div>
             </div>

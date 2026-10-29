@@ -28,6 +28,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
     startTime: '',
     endTime: '',
     selectedBatchIds: [] as string[],
+    joinMode: 'auto' as 'auto' | 'opt-in',
     ruleSetId: ''
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -75,6 +76,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
         startTime: start.toISOString(),
         endTime: end.toISOString(),
         ruleSetId: newSession.ruleSetId,
+        joinMode: newSession.joinMode,
         batchIds: newSession.selectedBatchIds
       };
       await onCreate(formData);
@@ -86,6 +88,7 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
         startTime: '',
         endTime: '',
         selectedBatchIds: [],
+        joinMode: 'auto',
         ruleSetId: ''
       });
       setFormError(null);
@@ -143,6 +146,16 @@ export const CreateSessionModal: React.FC<CreateSessionModalProps> = ({
           ]}
           value={newSession.type}
           onChange={e => setNewSession({...newSession, type: e.target.value as SessionType})}
+        />
+
+        <Select
+          label="Enforcement"
+          options={[
+            { value: 'auto', label: 'Auto: all enrolled batch members' },
+            { value: 'opt-in', label: 'Opt-in: only students who join' },
+          ]}
+          value={newSession.joinMode}
+          onChange={e => setNewSession({...newSession, joinMode: e.target.value as 'auto' | 'opt-in'})}
         />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
