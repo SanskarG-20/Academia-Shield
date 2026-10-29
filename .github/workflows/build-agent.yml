@@ -1,10 +1,15 @@
-name: Build Agent (.exe)
+name: Build Windows App and Agent (.exe)
 
 on:
   push:
     branches: [main]
     paths:
       - 'services/agent/**'
+      - 'apps/web/**'
+      - 'apps/desktop/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/build-agent.yml'
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
@@ -21,6 +26,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install web and desktop dependencies
+        run: npm ci
 
       - name: Install dependencies
         run: |
@@ -67,6 +80,21 @@ jobs:
             exit 1
           }
 
+      - name: Build bundled web interface
+        run: npm run build:web
+        env:
+          VITE_API_URL: https://academia-shield.onrender.com
+
+      - name: Build Windows desktop installer
+        run: npm run build:desktop
+
+      - name: Verify desktop installer
+        run: |
+          if (-not (Test-Path "apps/desktop/release/AcademiaShieldSetup.exe")) {
+            Write-Error "AcademiaShieldSetup.exe was not produced"
+            exit 1
+          }
+
       - name: Create/Update Nightly Release
         uses: softprops/action-gh-release@v2
         with:
@@ -79,7 +107,9 @@ jobs:
             **Built at:** ${{ github.event.head_commit.timestamp }}
 
             ### Download
-            Download `AcademiaShield.exe` below, then install it in an **Administrator** terminal:
+            Download `AcademiaShieldSetup.exe` below and run it from an administrator-capable Windows account. The setup installs the desktop interface and local agent. The API and database remain online services.
+
+            The standalone agent is also available for existing installations. To install it separately in an **Administrator** terminal:
             ```
             AcademiaShield.exe --install
             ```
@@ -95,4 +125,6 @@ jobs:
             ```
           prerelease: true
           make_latest: true
-          files: services/agent/dist/AcademiaShield.exe
+          files: |
+            services/agent/dist/AcademiaShield.exe
+            apps/desktop/release/AcademiaShieldSetup.exe

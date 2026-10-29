@@ -342,6 +342,27 @@ class DevicePolicyTests(unittest.TestCase):
         self.assertEqual(calls[1][3], agent.TASK_NAME)
         self.assertFalse(any("/delete" in call for call in calls))
 
+    def test_install_only_does_not_start_agent_with_existing_credential(self):
+        class Result:
+            returncode = 0
+            stderr = ""
+        source = os.path.join(self.temp.name, "source.exe")
+        Path(source).write_bytes(b"mock executable")
+        installed = os.path.join(self.temp.name, "AcademiaShield")
+        with patch.object(agent.platform, "system", return_value="Windows"), \
+             patch.object(agent, "_is_admin", return_value=True), \
+             patch.object(agent.sys, "frozen", True, create=True), \
+             patch.object(agent, "_get_current_exe", return_value=source), \
+             patch.object(agent, "INSTALL_DIR", installed), \
+             patch.object(agent, "INSTALL_EXE", os.path.join(installed, "AcademiaShield.exe")), \
+             patch.object(agent, "INSTALL_ENV", os.path.join(installed, ".env.production")), \
+             patch.object(agent, "STOP_FILE", os.path.join(installed, "stop.request")), \
+             patch.object(agent, "load_credential", return_value="mock.device.credential"), \
+             patch.object(agent.subprocess, "run", return_value=Result()), \
+             patch.object(agent, "main") as run_agent:
+            self.assertEqual(agent.do_install(start_if_enrolled=False), 0)
+            run_agent.assert_not_called()
+
     def test_recovery_restores_when_cache_expired_without_network(self):
         with patch.object(agent, "STOP_FILE", os.path.join(self.temp.name, "stop")), \
              patch.object(agent, "DNS_BACKUP_FILE", os.path.join(self.temp.name, "dns-backup")), \

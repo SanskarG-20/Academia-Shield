@@ -24,10 +24,29 @@ const { classifyCoverage, FRESH_MS } = require('../dist/services/sessionCoverage
 const { createRule } = require('../dist/controllers/ruleController');
 const { authorizeSessionRoom, setupSocket } = require('../dist/services/socketService');
 const logRoutes = require('../dist/routes/logRoutes').default;
+const app = require('../dist/app').default;
 
 function response() {
   return { code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
 }
+
+test('desktop app origin is allowed without accepting arbitrary local origins', async t => {
+  const previousMode = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  t.after(() => { if (previousMode === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousMode; });
+  const server = http.createServer(app);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const check = origin => new Promise((resolve, reject) => {
+    const request = http.get({ hostname: '127.0.0.1', port: server.address().port, path: '/', headers: { Origin: origin } }, result => {
+      result.resume();
+      result.on('end', () => resolve(result.headers['access-control-allow-origin']));
+    });
+    request.on('error', reject);
+  });
+  assert.equal(await check('academia://academia-shield'), 'academia://academia-shield');
+  assert.equal(await check('academia://untrusted'), undefined);
+});
 
 test('coverage classifies batch members and attendance without revoked devices', () => {
   const now = new Date();

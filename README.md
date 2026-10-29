@@ -5,7 +5,7 @@
   [![Build Status](https://github.com/SanskarG-20/Academia-Shield/actions/workflows/build-agent.yml/badge.svg)](https://github.com/SanskarG-20/Academia-Shield/actions)
 
   [Live Web App](https://academia-shield.vercel.app/) • 
-  [Download Agent](https://github.com/SanskarG-20/Academia-Shield/releases)
+  [Download Windows App](https://github.com/SanskarG-20/Academia-Shield/releases)
 </div>
 
 <br />
@@ -75,9 +75,15 @@ npm run seed
 npm run dev
 ```
 
-## 📦 Desktop Agent Deployment
+## 📦 Windows Desktop Installation
 
-The Python agent is automatically compiled into a standalone Windows executable (`AcademiaShield.exe`) via GitHub Actions CI/CD on every push.
+Download `AcademiaShieldSetup.exe` from the [nightly release](https://github.com/SanskarG-20/Academia-Shield/releases/tag/nightly) and run it on a Windows computer. It installs the React interface and the Python agent together. The shared API and MongoDB database remain hosted online. The installer needs administrator rights, and the same administrator-capable Windows account must be used to enroll the device. The desktop student sessions page can enroll the included agent directly using a one-time code. The agent begins at the next Windows sign-in.
+
+Uninstalling the desktop app first invokes the agent's safe uninstall, which restores managed hosts/DNS settings. If restoration fails, the installer stops and retains the recovery files. The installer is currently unsigned; Windows may display a publisher warning.
+
+### Standalone Agent Deployment
+
+The Python agent is also available as a standalone Windows executable (`AcademiaShield.exe`) from the same release. GitHub Actions rebuilds both executables when the agent, web interface, or desktop packaging changes on `main`.
 
 ### Shared Lab Installation
 Run the following in an **Administrator** PowerShell window on each lab PC to download and install the agent as a persistent background service:
@@ -93,6 +99,7 @@ Install and enroll under the **same Windows account**. This version requires tha
 
 ### Agent CLI Commands
 - `AcademiaShield.exe --install` : Install logon and once-per-minute recovery tasks.
+- `AcademiaShield.exe --install-only` : Install tasks without starting an already-enrolled agent (used by desktop setup).
 - `AcademiaShield.exe --uninstall` : Stop enforcement, restore managed settings, and remove scheduled tasks. Files and backups remain for inspection.
 - `AcademiaShield.exe --recover` : Check for an expired/missing local policy and restore managed settings when needed.
 - `AcademiaShield.exe --status` : View current installation and connection status.

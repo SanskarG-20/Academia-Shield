@@ -524,7 +524,7 @@ def _is_admin():
         return False
 
 
-def do_install():
+def do_install(start_if_enrolled=True):
     """
     Install the agent for auto-startup:
     1. Copy the .exe to C:\\ProgramData\\AcademiaShield\\
@@ -641,11 +641,11 @@ SOCKET_ENABLED=false
     print("  To check:      AcademiaShield.exe --status")
     print()
 
-    if load_credential():
+    if start_if_enrolled and load_credential():
         print("  Starting enrolled agent now...")
         print()
         return None  # Signal to continue into main().
-    print("  Agent remains off until enrollment.")
+    print("  Agent will start at the next Windows sign-in after enrollment.")
     return 0
 
 
@@ -753,13 +753,16 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         cmd = sys.argv[1].lower().strip("-/")
         if cmd == "enroll":
-            if len(sys.argv) != 2:
-                print("Usage: python agent.py enroll")
+            if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--stdin"):
+                print("Usage: python agent.py enroll [--stdin]")
                 sys.exit(2)
             from enroll import enroll
             from getpass import getpass
             try:
-                enrolled_id = enroll(getpass("Enrollment code: ").strip())
+                claim = sys.stdin.readline().strip() if len(sys.argv) == 3 else getpass("Enrollment code: ").strip()
+                if len(claim) != 32 or not all(char.isalnum() or char in "-_" for char in claim):
+                    raise ValueError("Invalid enrollment code")
+                enrolled_id = enroll(claim)
                 if os.path.lexists(STOP_FILE):
                     if os.path.islink(STOP_FILE):
                         raise RuntimeError("Stop marker is a symbolic link")
@@ -787,6 +790,8 @@ if __name__ == "__main__":
                 sys.exit(result)
             # result is None → continue into main()
             main()
+        elif cmd == "install-only":
+            sys.exit(do_install(start_if_enrolled=False))
         elif cmd == "uninstall":
             sys.exit(do_uninstall())
         elif cmd == "status":
@@ -798,6 +803,7 @@ if __name__ == "__main__":
             print("  Usage:")
             print("    AcademiaShield.exe              Run the agent")
             print("    AcademiaShield.exe --install     Install and auto-start on boot")
+            print("    AcademiaShield.exe --install-only  Install without starting the agent")
             print("    AcademiaShield.exe --uninstall   Remove auto-start")
             print("    AcademiaShield.exe --status      Show installation status")
             print("    AcademiaShield.exe enroll        Pair with a student account")

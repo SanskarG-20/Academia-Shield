@@ -1,0 +1,34 @@
+{
+  "name": "@academia-shield/desktop",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Academia Shield Windows desktop application",
+  "author": "Academia Shield",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test:origin": "electron test/origin-smoke.cjs",
+    "build:win": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.academiashield.desktop",
+    "productName": "Academia Shield",
+    "directories": { "output": "release" },
+    "files": ["main.cjs", "preload.cjs", "package.json"],
+    "extraResources": [
+      { "from": "../web/dist", "to": "web" },
+      { "from": "../../services/agent/dist/AcademiaShield.exe", "to": "agent/AcademiaShield.exe" }
+    ],
+    "win": { "target": "nsis", "artifactName": "AcademiaShieldSetup.exe" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": false,
+      "include": "installer.nsh"
+    }
+  }
+}

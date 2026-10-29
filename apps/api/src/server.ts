@@ -18,6 +18,7 @@ const socketAllowedOrigins = new Set([
   'http://localhost:3000',
   'http://localhost:5173',
   'https://academia-shield.vercel.app',
+  'academia://academia-shield',
   process.env.FRONTEND_URL || '',
 ].filter(Boolean));
 

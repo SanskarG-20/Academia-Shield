@@ -45,5 +45,6 @@ __pycache__/
 *.backup
 services/agent/build/
 services/agent/dist/
+apps/desktop/release/
 services/agent/*.spec
 services/agent/last_config.json
