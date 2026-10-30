@@ -1,7 +1,29 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import Batch from '../models/Batch';
 import Student from '../models/Student';
 import { sendError, sendSuccess } from '../utils/apiResponse';
+
+const normalizeDepartment = (value: unknown) => String(value || '').trim().toUpperCase();
+
+const addStudentToBatch = async (batch: any, studentId: string, res: Response) => {
+  const alreadyJoined = batch.students.some(
+    (memberId: any) => memberId.toString() === studentId
+  );
+
+  if (alreadyJoined) {
+    return sendError(res, 'Already a member of this batch', 400);
+  }
+
+  batch.students.push(studentId);
+  await batch.save();
+
+  await Student.findByIdAndUpdate(studentId, {
+    $addToSet: { joinedBatches: batch._id },
+  });
+
+  return sendSuccess(res, batch, `Successfully joined ${batch.name}`);
+};
 
 // @desc    Create a Batch
 // @route   POST /api/batches
@@ -22,7 +44,7 @@ export const createBatch = async (req: Request | any, res: Response) => {
     const batch = await Batch.create({
       name,
       code: normalizedCode,
-      department,
+      department: normalizeDepartment(department),
       year,
       professorId: req.user.id,
     });
@@ -63,28 +85,62 @@ export const joinBatch = async (req: Request | any, res: Response) => {
       return sendError(res, 'Batch not found', 404);
     }
 
-    const alreadyJoined = batch.students.some(
-      (memberId) => memberId.toString() === studentId
-    );
-
-    if (alreadyJoined) {
-      return sendError(res, 'Already a member of this batch', 400);
-    }
-
-    batch.students.push(studentId);
-    await batch.save();
-
-    await Student.findByIdAndUpdate(studentId, {
-      $addToSet: { joinedBatches: batch._id },
-    });
-
-    return sendSuccess(
-      res,
-      batch,
-      `Successfully joined ${batch.name}`
-    );
+    return addStudentToBatch(batch, studentId, res);
   } catch (err: any) {
     return sendError(res, err.message || 'Unable to join batch', 500);
+  }
+};
+
+// @desc    Get unjoined batches matching the authenticated student's department
+// @route   GET /api/batches/student/available
+export const getAvailableBatches = async (req: Request | any, res: Response) => {
+  try {
+    const student = await Student.findById(req.user.id).select('department');
+    if (!student) {
+      return sendError(res, 'Student not found', 404);
+    }
+
+    // The department is always derived from the authenticated student record.
+    // Do not accept a client-supplied department as an authorization filter.
+    const batches = await Batch.find({
+      department: normalizeDepartment(student.department),
+      students: { $ne: student._id },
+    })
+      .select('_id name department year')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return sendSuccess(res, batches, 'Available department batches fetched successfully');
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to fetch available batches', 500);
+  }
+};
+
+// @desc    Join a discovered batch from the authenticated student's department
+// @route   POST /api/batches/student/available/:id/join
+export const joinAvailableBatch = async (req: Request | any, res: Response) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return sendError(res, 'Invalid batch ID', 400);
+    }
+
+    const student = await Student.findById(req.user.id).select('department');
+    if (!student) {
+      return sendError(res, 'Student not found', 404);
+    }
+
+    const batch = await Batch.findById(req.params.id);
+    if (!batch) {
+      return sendError(res, 'Batch not found', 404);
+    }
+
+    if (normalizeDepartment(batch.department) !== normalizeDepartment(student.department)) {
+      return sendError(res, 'This batch is not available for your department', 403);
+    }
+
+    return addStudentToBatch(batch, req.user.id, res);
+  } catch (err: any) {
+    return sendError(res, err.message || 'Unable to join available batch', 500);
   }
 };
 

@@ -331,6 +331,25 @@ export async function getMyBatches(): Promise<Batch[]> {
   return batches.map(normalizeBatch);
 }
 
+export async function getAvailableBatches(): Promise<Batch[]> {
+  const batches = await handleResponse<any[]>(
+    await fetch(`${BASE_URL}/api/batches/student/available`, {
+      headers: authHeaders(),
+    })
+  );
+  return batches.map(normalizeBatch);
+}
+
+export async function joinAvailableBatch(id: string): Promise<Batch> {
+  const batch = await handleResponse<any>(
+    await fetch(`${BASE_URL}/api/batches/student/available/${encodeURIComponent(id)}/join`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+  );
+  return normalizeBatch(batch);
+}
+
 export async function getBatchById(id: string): Promise<Batch> {
   const batch = await handleResponse<any>(
     await fetch(`${BASE_URL}/api/batches/${id}`, {

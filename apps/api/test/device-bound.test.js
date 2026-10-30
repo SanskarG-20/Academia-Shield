@@ -25,6 +25,7 @@ const { createSession, joinSession, getSessionCoverage, getSessionSummary } = re
 const { authorize } = require('../dist/middleware/auth');
 const { classifyCoverage, FRESH_MS } = require('../dist/services/sessionCoverage');
 const { createRule } = require('../dist/controllers/ruleController');
+const { getAvailableBatches, joinAvailableBatch, joinBatch } = require('../dist/controllers/batchController');
 const { authorizeSessionRoom, setupSocket } = require('../dist/services/socketService');
 const logRoutes = require('../dist/routes/logRoutes').default;
 const app = require('../dist/app').default;
@@ -312,6 +313,83 @@ test('missing device credential is rejected by protected API', async () => {
 
 test('browser logs route has no activity write endpoint', () => {
   assert.equal(logRoutes.stack.some(layer => layer.route?.methods?.post), false);
+});
+
+test('available batches derive department from the authenticated student and expose safe fields only', async t => {
+  let batchQuery;
+  let selectedFields;
+  t.mock.method(Student, 'findById', id => ({
+    select: async fields => {
+      assert.equal(id, 'student-a');
+      assert.equal(fields, 'department');
+      return { _id: 'student-a', department: 'CE' };
+    },
+  }));
+  t.mock.method(Batch, 'find', query => {
+    batchQuery = query;
+    return {
+      select(fields) {
+        selectedFields = fields;
+        return {
+          sort() {
+            return {
+              lean: async () => [{ _id: 'batch-a', name: 'CE Lab', department: 'CE', year: '2' }],
+            };
+          },
+        };
+      },
+    };
+  });
+
+  const res = response();
+  await getAvailableBatches({ user: { id: 'student-a', role: 'student' }, query: { department: 'IT' } }, res);
+
+  assert.equal(res.code, 200);
+  assert.equal(batchQuery.department, 'CE');
+  assert.equal(String(batchQuery.students.$ne), 'student-a');
+  assert.equal(selectedFields, '_id name department year');
+  assert.equal(Object.hasOwn(res.body.data[0], 'code'), false);
+  assert.equal(Object.hasOwn(res.body.data[0], 'students'), false);
+});
+
+test('student cannot quick-join a discovered batch from another department', async t => {
+  t.mock.method(Student, 'findById', () => ({ select: async () => ({ _id: 'student-a', department: 'CE' }) }));
+  t.mock.method(Batch, 'findById', async () => ({
+    _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', name: 'IT Lab', department: 'IT', students: [],
+    save: async () => { throw new Error('Cross-department batch must not be saved'); },
+  }));
+
+  const res = response();
+  await joinAvailableBatch({
+    user: { id: 'student-a', role: 'student' },
+    params: { id: 'aaaaaaaaaaaaaaaaaaaaaaaa' },
+  }, res);
+
+  assert.equal(res.code, 403);
+});
+
+test('batch-code joining remains available for special or cross-department batches', async t => {
+  let saved = false;
+  let studentUpdated = false;
+  t.mock.method(Batch, 'findOne', async query => {
+    assert.equal(query.code, 'SPECIAL-2026');
+    return {
+      _id: 'batch-special', name: 'Special Elective', department: 'IT', students: [],
+      save: async () => { saved = true; },
+    };
+  });
+  t.mock.method(Student, 'findByIdAndUpdate', async (id, update) => {
+    assert.equal(id, 'student-a');
+    assert.equal(update.$addToSet.joinedBatches, 'batch-special');
+    studentUpdated = true;
+  });
+
+  const res = response();
+  await joinBatch({ user: { id: 'student-a', role: 'student' }, body: { code: 'special-2026' } }, res);
+
+  assert.equal(res.code, 200);
+  assert.equal(saved, true);
+  assert.equal(studentUpdated, true);
 });
 
 test('oversized rule sets are rejected before they reach devices', async () => {
