@@ -15,9 +15,9 @@ export const LoginStudent: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    // SAP ID Validation (12 digits)
-    if (!sapId.trim() || sapId.length !== 12 || !/^\d+$/.test(sapId)) {
-      setError('Invalid SAP ID. Please enter exactly 12 digits.');
+    // SAP ID Validation (11 digits)
+    if (!sapId.trim() || sapId.length !== 11 || !/^\d+$/.test(sapId)) {
+      setError('Invalid SAP ID. Please enter exactly 11 digits.');
       return;
     }
 
@@ -73,13 +73,13 @@ export const LoginStudent: React.FC = () => {
         <form onSubmit={handleRequestOtp} className="space-y-6">
           <div className="space-y-4">
             <Input 
-              label="SAP ID (12 Digits)"
+              label="SAP ID (11 Digits)"
               type="text"
-              placeholder="e.g. 600000001234"
+              placeholder="e.g. 60000001234"
               value={sapId}
               onChange={(e) => setSapId(e.target.value)}
               icon={<Hash size={16} />}
-              maxLength={12}
+              maxLength={11}
               autoFocus
             />
 
@@ -88,7 +88,7 @@ export const LoginStudent: React.FC = () => {
           <Button 
             type="submit" 
             className="w-full py-3 text-base" 
-            disabled={isLoading || sapId.length !== 12}
+            disabled={isLoading || sapId.length !== 11}
             icon={isLoading ? null : <Send size={18} />}
           >
             {isLoading ? 'Sending Code...' : 'Login / Register'}

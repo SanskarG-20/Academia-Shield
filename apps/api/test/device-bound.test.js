@@ -173,7 +173,7 @@ test('OTP is never returned when DEMO_MODE is off', async t => {
   t.mock.method(email, 'sendEmail', async () => undefined);
   try {
     const res = response();
-    await requestOtp({ body: { sapId: '123456789012' } }, res);
+    await requestOtp({ body: { sapId: '12345678901' } }, res);
     assert.equal(res.code, 200);
     assert.equal(JSON.stringify(res.body).includes('mockOtp'), false);
     assert.equal(res.body.data.otpMode, 'email');
@@ -181,6 +181,13 @@ test('OTP is never returned when DEMO_MODE is off', async t => {
   } finally {
     for (const [key, value] of Object.entries(prior)) value === undefined ? delete process.env[key] : process.env[key] = value;
   }
+});
+
+test('student OTP rejects SAP IDs that are not exactly 11 digits', async () => {
+  const res = response();
+  await requestOtp({ body: { sapId: '123456789012' } }, res);
+  assert.equal(res.code, 400);
+  assert.match(res.body.message, /exactly 11 digits/i);
 });
 
 test('failed SMTP never falls back to a returned mock OTP', async t => {
@@ -198,7 +205,7 @@ test('failed SMTP never falls back to a returned mock OTP', async t => {
   t.mock.method(email, 'sendEmail', async () => { throw new Error('synthetic delivery failure'); });
   try {
     const res = response();
-    await requestOtp({ body: { sapId: '123456789012' } }, res);
+    await requestOtp({ body: { sapId: '12345678901' } }, res);
     assert.equal(res.code, 502);
     assert.equal(JSON.stringify(res.body).includes('mockOtp'), false);
   } finally {
@@ -215,7 +222,7 @@ test('OTP request returns 503 without SMTP when DEMO_MODE is off', async t => {
   delete process.env.EMAIL_SERVICE;
   try {
     const res = response();
-    await requestOtp({ body: { sapId: '123456789012' } }, res);
+    await requestOtp({ body: { sapId: '12345678901' } }, res);
     assert.equal(res.code, 503);
     assert.equal(JSON.stringify(res.body).includes('mockOtp'), false);
   } finally {
@@ -235,7 +242,7 @@ test('new student OTP refuses an unknown email mapping without creating a code',
   t.mock.method(Student, 'findOne', () => ({ select: async () => null }));
   t.mock.method(Otp, 'create', async () => { throw new Error('No OTP must be created'); });
   const res = response();
-  await requestOtp({ body: { sapId: '123456789012' } }, res);
+  await requestOtp({ body: { sapId: '12345678901' } }, res);
   assert.equal(res.code, 503);
   assert.equal(JSON.stringify(res.body).includes('mockOtp'), false);
 });
@@ -256,7 +263,7 @@ test('existing student OTP is delivered to the stored address', async t => {
   let destination;
   t.mock.method(email, 'sendEmail', async to => { destination = to; });
   const res = response();
-  await requestOtp({ body: { sapId: '123456789012' } }, res);
+  await requestOtp({ body: { sapId: '12345678901' } }, res);
   assert.equal(res.code, 200);
   assert.equal(destination, 'registered@university.example');
   assert.equal(JSON.stringify(res.body).includes('registered@university.example'), false);
@@ -264,8 +271,8 @@ test('existing student OTP is delivered to the stored address', async t => {
 
 test('student profile cannot replace its verified email with a supplied address', async () => {
   const res = response();
-  await createStudentProfile({ user: { id: '123456789012', role: 'student_temp', email: 'verified@university.example' }, body: {
-    sapId: '123456789012', name: 'Student', email: 'attacker@example.invalid', department: 'CE', rollNumber: '1', year: '1',
+  await createStudentProfile({ user: { id: '12345678901', role: 'student_temp', email: 'verified@university.example' }, body: {
+    sapId: '12345678901', name: 'Student', email: 'attacker@example.invalid', department: 'CE', rollNumber: '1', year: '1',
   } }, res);
   assert.equal(res.code, 403);
 });
@@ -279,8 +286,8 @@ test('new profile stores only the OTP-verified address from the signed session',
   t.mock.method(Student, 'create', async payload => { created = payload; return { ...payload, _id: 'student-a' }; });
   t.mock.method(Otp, 'deleteMany', async () => ({}));
   const res = response();
-  await createStudentProfile({ user: { id: '123456789012', role: 'student_temp', email: 'verified@university.example' }, body: {
-    sapId: '123456789012', name: 'Student', department: 'CE', rollNumber: '1', year: '1',
+  await createStudentProfile({ user: { id: '12345678901', role: 'student_temp', email: 'verified@university.example' }, body: {
+    sapId: '12345678901', name: 'Student', department: 'CE', rollNumber: '1', year: '1',
   } }, res);
   assert.equal(res.code, 201);
   assert.equal(created.email, 'verified@university.example');

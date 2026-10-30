@@ -8,7 +8,7 @@ import { generateToken } from '../utils/generateToken';
 import { sendEmail } from '../utils/email';
 import { sendError, sendSuccess } from '../utils/apiResponse';
 
-const SAP_ID_REGEX = /^\d{12}$/;
+const SAP_ID_REGEX = /^\d{11}$/;
 const OTP_REGEX = /^\d{6}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -141,7 +141,7 @@ export const requestOtp = async (req: Request, res: Response) => {
     }
 
     if (!SAP_ID_REGEX.test(sapId)) {
-      return sendError(res, 'sapId must be exactly 12 digits', 400);
+      return sendError(res, 'sapId must be exactly 11 digits', 400);
     }
 
     const otpMode = resolveOtpMode();
@@ -209,7 +209,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
     }
 
     if (!SAP_ID_REGEX.test(sapId)) {
-      return sendError(res, 'sapId must be exactly 12 digits', 400);
+      return sendError(res, 'sapId must be exactly 11 digits', 400);
     }
 
     if (!OTP_REGEX.test(otp)) {
