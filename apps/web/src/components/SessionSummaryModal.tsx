@@ -174,8 +174,28 @@ export const SessionSummaryModal: React.FC<SessionSummaryModalProps> = ({
           {status === 'ready' && summaryData?.aiSummary && (
             <>
               {/* Summary Text Card */}
-              <div className="p-4.5 rounded-xl border border-slate-200/80 dark:border-slate-800 border-l-4 border-l-brand-500 bg-brand-50/30 dark:bg-brand-950/20 text-slate-800 dark:text-slate-200 text-[15px] leading-[1.7]">
-                {summaryData.aiSummary}
+              <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900/60">
+                <div className="flex flex-col gap-1 border-b border-slate-200/70 bg-brand-50/70 px-5 py-3 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800 dark:bg-brand-950/30">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-brand-700 dark:text-brand-300">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100 text-brand-600 dark:bg-brand-900/50 dark:text-brand-300">
+                      <Sparkles size={15} />
+                    </span>
+                    <span>AI Analysis</span>
+                  </div>
+                  {summaryData.generatedAt && (
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      Generated {new Date(summaryData.generatedAt).toLocaleString([], {
+                        dateStyle: 'medium',
+                        timeStyle: 'short',
+                      })}
+                    </span>
+                  )}
+                </div>
+                <div className="border-l-4 border-l-brand-500 px-5 py-4 sm:px-6 sm:py-5">
+                  <p className="max-w-prose whitespace-pre-wrap text-[15px] leading-7 text-slate-700 dark:text-slate-200">
+                    {summaryData.aiSummary}
+                  </p>
+                </div>
               </div>
 
               {/* 2x2 Key Stats Grid */}
