@@ -56,7 +56,7 @@ export const LoginProfessor: React.FC = () => {
         <div className="text-center mb-8">
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Faculty Login & Registration</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">
-            Enter your credentials. New accounts are created automatically.
+            Enter your faculty credentials. New accounts require an approved institutional email domain.
           </p>
         </div>
 

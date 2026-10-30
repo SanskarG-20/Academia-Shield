@@ -133,8 +133,8 @@ function setAuthState(
   }
 }
 
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (res.status === 401) {
+async function handleResponse<T>(res: Response, redirectOnUnauthorized = true): Promise<T> {
+  if (res.status === 401 && redirectOnUnauthorized) {
     localStorage.clear();
     window.location.hash = '/select-user';
     throw new Error('Session expired. Please log in again.');
@@ -165,7 +165,8 @@ export async function professorLogin(email: string, password: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
-    })
+    }),
+    false
   );
 
   setAuthState(data.token, 'professor', data.user);
