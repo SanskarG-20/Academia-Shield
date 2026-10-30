@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Input, Select } from '../components/ui/Input';
 import {
@@ -14,9 +14,36 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import { Search, AlertTriangle, CheckCircle, Loader2 as Spinner } from 'lucide-react';
+import { Search, AlertTriangle, CheckCircle, Loader2 as Spinner, Wifi, WifiOff } from 'lucide-react';
 import { LogEntry, Session } from '../types';
 import { getLogs, getSessions } from '../lib/api';
+import { getSocket, joinLiveLogs } from '../lib/socket';
+
+const MAX_LOGS = 500;
+
+function normalizeLiveLog(data: any): LogEntry {
+  return {
+    _id: String(data?._id || `ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+    type: data?.type || 'EVENT',
+    studentId: String(data?.studentId || ''),
+    studentName: String(data?.studentName || 'Unknown'),
+    sessionId: String(data?.sessionId || ''),
+    resource: data?.resource ? String(data.resource) : '',
+    details: data?.details ? String(data.details) : '',
+    duration: typeof data?.duration === 'number' ? data.duration : undefined,
+    engagementScore: typeof data?.engagementScore === 'number' ? data.engagementScore : undefined,
+    isViolation: Boolean(data?.isViolation),
+    timestamp: data?.timestamp || new Date().toISOString(),
+  };
+}
+
+function mergeLogs(current: LogEntry[], incoming: LogEntry[]): LogEntry[] {
+  const byId = new Map<string, LogEntry>();
+  [...current, ...incoming].forEach((log) => byId.set(log._id, log));
+  return [...byId.values()]
+    .sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp))
+    .slice(0, MAX_LOGS);
+}
 
 export const Logs: React.FC = () => {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -25,6 +52,17 @@ export const Logs: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const selectedSessionIdRef = useRef('');
+  const initialLoadCompleteRef = useRef(false);
+
+  const replaceLogs = useCallback((data: LogEntry[]) => {
+    setLogs(data
+      .sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp))
+      .slice(0, MAX_LOGS));
+    setLastUpdatedAt(new Date());
+  }, []);
 
   async function loadSessionsAndLogs() {
     try {
@@ -35,8 +73,9 @@ export const Logs: React.FC = () => {
       if (sessionsData.length > 0) {
         const firstSessionId = sessionsData[0]._id;
         setSelectedSessionId(firstSessionId);
+        selectedSessionIdRef.current = firstSessionId;
         const logsData = await getLogs(firstSessionId);
-        setLogs(logsData);
+        replaceLogs(logsData);
       } else {
         setLogs([]);
       }
@@ -45,26 +84,67 @@ export const Logs: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to load logs.');
     } finally {
+      initialLoadCompleteRef.current = true;
       setLoading(false);
     }
   }
 
-  async function loadLogsBySession(sessionId: string) {
+  const loadLogsBySession = useCallback(async (sessionId: string, showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const data = sessionId ? await getLogs(sessionId) : await getLogs();
-      setLogs(data);
+      replaceLogs(data);
       setError('');
     } catch (err: any) {
       setError(err.message || 'Failed to load logs for selected session.');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
-  }
+  }, [replaceLogs]);
 
   useEffect(() => {
     loadSessionsAndLogs();
   }, []);
+
+  useEffect(() => {
+    const socket = getSocket();
+    joinLiveLogs();
+
+    const onConnect = () => {
+      setSocketConnected(true);
+      if (initialLoadCompleteRef.current) {
+        void loadLogsBySession(selectedSessionIdRef.current, false);
+      }
+    };
+    const onDisconnect = () => setSocketConnected(false);
+    const onLiveLogUpdate = (data: any) => {
+      const liveLog = normalizeLiveLog(data);
+      const selectedSessionId = selectedSessionIdRef.current;
+      if (selectedSessionId && liveLog.sessionId !== selectedSessionId) return;
+
+      setLogs((current) => mergeLogs(current, [liveLog]));
+      setLastUpdatedAt(new Date());
+      setError('');
+    };
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('live_log_update', onLiveLogUpdate);
+    setSocketConnected(socket.connected);
+
+    const fallbackPoll = window.setInterval(() => {
+      if (!socket.connected) {
+        void loadLogsBySession(selectedSessionIdRef.current, false);
+      }
+    }, 20_000);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('live_log_update', onLiveLogUpdate);
+      window.clearInterval(fallbackPoll);
+    };
+  }, [loadLogsBySession]);
 
   const filteredLogs = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -129,7 +209,23 @@ export const Logs: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Activity Logs & Analytics</h1>
-          <p className="text-slate-500 dark:text-slate-400">Deep dive into student behavior and session security.</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+            <span>Deep dive into student behavior and session security.</span>
+            <span
+              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                socketConnected
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400'
+                  : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400'
+              }`}
+              title={socketConnected ? 'Updates arrive instantly through the authenticated live connection.' : 'Live connection is unavailable. Data is refreshed every 20 seconds.'}
+            >
+              {socketConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
+              {socketConnected ? 'Live' : 'Reconnecting'}
+            </span>
+            {lastUpdatedAt && (
+              <span className="text-xs">Updated {lastUpdatedAt.toLocaleTimeString()}</span>
+            )}
+          </div>
         </div>
         <div className="w-full sm:w-72">
           <Select
@@ -140,8 +236,10 @@ export const Logs: React.FC = () => {
             ]}
             value={selectedSessionId}
             onChange={(e) => {
-              setSelectedSessionId(e.target.value);
-              loadLogsBySession(e.target.value);
+              const sessionId = e.target.value;
+              selectedSessionIdRef.current = sessionId;
+              setSelectedSessionId(sessionId);
+              void loadLogsBySession(sessionId);
             }}
             className="mb-0"
           />
