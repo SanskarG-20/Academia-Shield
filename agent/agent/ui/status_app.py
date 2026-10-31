@@ -283,9 +283,12 @@ class AcademiaShieldStatusApp:
                         self.status_labels["policy_val"].config(text="Inactive (Normal Internet)", fg=self.text_secondary)
 
             # Check DNS adapter status
-            win_dns = WindowsDNSAdapterManager(backup_dir=config.storage_dir)
-            if os.path.exists(win_dns.backup_file):
+            win_dns = WindowsDNSAdapterManager()
+            journal_status = win_dns.get_status().get("journal_status")
+            if journal_status == "enforced":
                 self.status_labels["dns_val"].config(text="Enforced (Adapter Redirected)", fg=self.accent_green)
+            elif journal_status:
+                self.status_labels["dns_val"].config(text="Restore Pending (Recovery Guard Active)", fg=self.accent_amber)
             else:
                 self.status_labels["dns_val"].config(text="Normal (Local Resolver Port 5353)", fg=self.text_secondary)
 
@@ -481,13 +484,20 @@ class AcademiaShieldStatusApp:
         """Stop active blocking and restore original DNS and process state."""
         if messagebox.askyesno("Disable Enforcement", "Stop all active session enforcement and restore original system settings?"):
             config = get_config()
-            win_dns = WindowsDNSAdapterManager(backup_dir=config.storage_dir)
+            win_dns = WindowsDNSAdapterManager()
             try:
-                win_dns.restore_original_dns()
+                restored = win_dns.restore_original_dns()
             except Exception:
-                pass
+                restored = False
             set_agent_mode("AUDIT", storage_dir=config.storage_dir)
-            messagebox.showinfo("Restored", "Agent mode reverted to AUDIT. All network and app restrictions restored.")
+            if restored:
+                messagebox.showinfo("Restored", "Agent mode reverted to AUDIT. All network and app restrictions restored.")
+            else:
+                messagebox.showwarning(
+                    "Restore Pending",
+                    "Original DNS settings could not be verified yet. The recovery journal was kept and the "
+                    "network guard will keep retrying. Re-run as Administrator if this persists."
+                )
             self.refresh_status()
 
     def logout_device(self):

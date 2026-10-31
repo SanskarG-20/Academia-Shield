@@ -203,6 +203,13 @@ def sync_once(engine):
     global LAST_APPLIED_DOMAINS, LAST_STATE
 
     if should_block:
+        # Never leave the OS pointed at a resolver that stopped answering.
+        if hasattr(engine, "ensure_resolver_healthy") and not engine.ensure_resolver_healthy():
+            LOGGER.error("DNS resolver health check failed; enforcement paused until it recovers.")
+            LAST_STATE = None
+            LAST_APPLIED_DOMAINS = None
+            return
+
         normalized = normalize_domain_list(domains_to_block)
         current_domains_set = set(normalized)
         
@@ -255,6 +262,14 @@ def main():
         LOGGER.warning("Please restart as administrator for full functionality.")
 
     LOGGER.info("=" * 50)
+
+    # Crash/reboot recovery: undo any DNS state left behind by a previous run
+    # before the new engine starts and possibly re-applies enforcement.
+    try:
+        from enforcement.dns import cleanup_stale_dns
+        cleanup_stale_dns()
+    except Exception as err:
+        LOGGER.warning("Startup DNS recovery skipped: %s", err)
 
     # Select engine
     engine = get_engine()

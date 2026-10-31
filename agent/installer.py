@@ -201,11 +201,18 @@ def uninstall_agent(install_dir: str) -> bool:
 
     print("[1/4] Restoring network adapter DNS configuration...")
     try:
-        win_dns = WindowsDNSAdapterManager(backup_dir=install_dir)
-        win_dns.restore_original_dns()
-        print("Original DNS configuration restored.")
+        win_dns = WindowsDNSAdapterManager()
+        if not win_dns.restore_original_dns():
+            print("ERROR: Original DNS settings could not be verified and restored.")
+            print("       Uninstallation aborted so the recovery journal is not destroyed.")
+            print("       Re-run as Administrator; the recovery guard will also keep retrying.")
+            return False
+        win_dns.remove_recovery_task()
+        print("Original DNS configuration restored and verified.")
     except Exception as err:
         LOGGER.warning("DNS restoration note: %s", err)
+        print("ERROR: DNS restoration failed; uninstallation aborted to keep recovery data.")
+        return False
 
     print("[2/4] Stopping and removing Windows Service (if installed)...")
     if sys.platform == "win32":

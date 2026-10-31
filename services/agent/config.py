@@ -5,6 +5,7 @@ All environment variables and constants used by the agent.
 """
 
 import os
+import platform
 import socket
 
 # ---------------------------------------------------------------------------
@@ -74,8 +75,19 @@ SOCKET_URL = os.getenv("SOCKET_URL", f"http://{SERVER_IP}:{SERVER_PORT}")
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 CACHE_FILE = os.path.join(AGENT_DIR, "last_config.json")
 BACKUP_FILE = os.path.join(AGENT_DIR, "hosts.backup")
-DNS_BACKUP_FILE = os.path.join(AGENT_DIR, "dns_backup.json")
 LOG_FILE = os.path.join(AGENT_DIR, "agent.log")
+
+# The DNS journal must survive crashes, reboots and different user accounts,
+# so it lives in a machine-wide location instead of next to the executable.
+def _machine_state_dir():
+    if platform.system() == "Windows":
+        program_data = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
+        return os.path.join(program_data, "AcademiaShield")
+    return os.path.expanduser("~/.academia_shield")
+
+
+DNS_STATE_DIR = _machine_state_dir()
+DNS_BACKUP_FILE = os.path.join(DNS_STATE_DIR, "dns_backup.json")
 
 # ---------------------------------------------------------------------------
 # Hosts Engine Constants

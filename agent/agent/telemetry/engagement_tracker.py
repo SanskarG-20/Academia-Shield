@@ -27,7 +27,7 @@ except ImportError:
     psutil = None
 
 from ..platform.windows_foreground import WindowsForegroundDetector
-from .activity_classifier import ActivityClassifier, get_os_idle_seconds
+from .activity_classifier import ActivityClassificationResult, ActivityClassifier, get_os_idle_seconds
 
 logger = logging.getLogger("agent.engagement_tracker")
 

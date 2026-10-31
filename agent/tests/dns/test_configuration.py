@@ -2,6 +2,8 @@
 Tests for DNS Configuration Lifecycle & Drift Detection.
 """
 
+import os
+
 from agent.dns.configuration import DNSConfigurationLifecycle
 from agent.platform.windows_dns import WindowsDNSAdapterManager
 
@@ -25,4 +27,5 @@ def test_unprivileged_safe_dns_configuration():
 def test_windows_dns_adapter_backup_path():
     manager = WindowsDNSAdapterManager()
     assert manager.backup_dir is not None
-    assert "academia_shield" in manager.backup_file
+    assert manager.backup_file.endswith("dns_adapter_backup.json")
+    assert os.path.isdir(manager.backup_dir)

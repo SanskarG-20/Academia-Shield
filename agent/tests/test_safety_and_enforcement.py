@@ -203,30 +203,37 @@ def test_protected_process_cannot_be_closed():
 # TEST 5: DNS settings are restored on disable
 # ==============================================================================
 def test_dns_settings_restored_on_disable(tmp_path):
-    """Verify DNS adapter manager backs up original settings and restores them cleanly."""
+    """Verify DNS adapter manager journals original settings and verifies the restore."""
     backup_dir = str(tmp_path)
     dns_mgr = WindowsDNSAdapterManager(backup_dir=backup_dir)
 
-    # Mock get_active_adapters and subprocess
     dns_mgr.is_admin = MagicMock(return_value=True)
-    dns_mgr.get_active_adapters = MagicMock(return_value=[{"alias": "Wi-Fi", "index": 1}])
+    dns_mgr.get_enforcement_adapters = MagicMock(return_value=[{"alias": "Wi-Fi", "index": 1}])
+    dns_mgr.get_all_adapters = MagicMock(return_value=[{"alias": "Wi-Fi", "index": 1, "status": "Up"}])
+    dns_mgr._apply_adapter_servers = MagicMock(return_value=True)
+    dns_mgr.ensure_recovery_task = MagicMock(return_value=True)
+    dns_mgr._flush_dns = MagicMock()
+    dns_mgr.remove_recovery_task = MagicMock(return_value=True)
+    original = {"ok": True, "dhcp": False, "servers": ["8.8.8.8", "1.1.1.1"]}
+    enforced = {"ok": True, "dhcp": False, "servers": ["127.0.0.1"]}
+    dns_mgr._query_adapter_dns_state = MagicMock(
+        side_effect=[original, original, enforced, original]
+    )
 
-    with patch("subprocess.run") as mock_sub:
-        mock_sub.return_value = MagicMock(returncode=0, stdout="8.8.8.8\n1.1.1.1\n")
-        # 1. Backup original DNS
-        success_backup = dns_mgr.backup_original_dns()
-        assert success_backup is True
+    with patch("agent.platform.windows_dns.probe_local_resolver", return_value=True):
+        # 1. Journal the original state
+        assert dns_mgr.backup_original_dns() is True
         assert os.path.exists(dns_mgr.backup_file)
-
         with open(dns_mgr.backup_file, "r") as f:
             data = json.load(f)
-            assert "Wi-Fi" in data
-            assert data["Wi-Fi"] == ["8.8.8.8", "1.1.1.1"]
+        assert data["version"] == 2
+        assert data["adapters"]["Wi-Fi"]["original_servers"] == ["8.8.8.8", "1.1.1.1"]
 
-        # 2. Restore original DNS
-        success_restore = dns_mgr.restore_original_dns()
-        assert success_restore is True
-        assert not os.path.exists(dns_mgr.backup_file)
+        # 2. Redirect, then restore the journaled state with verification
+        assert dns_mgr.configure_local_dns(target_dns="127.0.0.1", resolver_port=53) is True
+        assert dns_mgr.restore_original_dns() is True
+
+    assert not os.path.exists(dns_mgr.backup_file)
 
 # ==============================================================================
 # TEST 6: App and DNS telemetry is idempotent
@@ -259,10 +266,15 @@ def test_uninstall_removes_only_agent_created_config(tmp_path):
     with open(test_file, "w") as f:
         f.write("database content")
 
-    # Call uninstall
-    uninstall_agent(install_dir=install_dir)
+    # Call uninstall with the DNS restore no-op mocked (no real adapter changes in tests)
+    installer_module = sys.modules[uninstall_agent.__module__]
+    fake_dns = MagicMock()
+    fake_dns.restore_original_dns.return_value = True
+    with patch.object(installer_module, "WindowsDNSAdapterManager", return_value=fake_dns):
+        assert uninstall_agent(install_dir=install_dir) is True
 
     assert not os.path.exists(install_dir)
+    fake_dns.remove_recovery_task.assert_called_once()
 
 # ==============================================================================
 # TEST 8: Development mode never enables USB restriction

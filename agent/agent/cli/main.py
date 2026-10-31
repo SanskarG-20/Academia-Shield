@@ -18,7 +18,7 @@ import getpass
 import argparse
 import logging
 import ctypes
-from typing import Set
+from typing import Any, Dict, Set
 
 # Ensure agent package is importable regardless of how this file is invoked
 _current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -173,7 +173,7 @@ def cmd_status(args):
     usb_mgr = USBComplianceManager(mode=current_mode)
     usb_status = usb_mgr.get_compliance_status()
 
-    win_dns = WindowsDNSAdapterManager(backup_dir=config.storage_dir)
+    win_dns = WindowsDNSAdapterManager()
     dns_backup_exists = os.path.exists(win_dns.backup_file)
 
     # Check live session state from backend
@@ -236,14 +236,25 @@ def cmd_disable_enforcement(args):
     print("=" * 65)
 
     config = get_config()
-    win_dns = WindowsDNSAdapterManager(backup_dir=config.storage_dir)
+    win_dns = WindowsDNSAdapterManager()
 
     print("Restoring original network adapter DNS settings...")
     try:
-        win_dns.restore_original_dns()
-        print("Original DNS settings successfully restored.")
+        restored = win_dns.restore_original_dns()
+        if restored:
+            print("Original DNS settings verified and restored.")
+        else:
+            print("WARNING: DNS restoration is incomplete. The recovery journal was kept")
+            print("         and the background recovery guard will retry automatically.")
     except Exception as err:
         LOGGER.warning("Could not restore DNS settings: %s", err)
+
+    try:
+        hosts_engine = HostsEnforcementEngine() if HostsEnforcementEngine else None
+        if hosts_engine:
+            hosts_engine.restore_rules()
+    except Exception as err:
+        LOGGER.warning("Could not restore hosts file rules: %s", err)
 
     set_agent_mode("AUDIT", storage_dir=config.storage_dir)
     print("Agent Operating Mode reverted to AUDIT (non-blocking).")
@@ -261,11 +272,22 @@ def cmd_uninstall(args):
 
     print("\n[1/3] Restoring network adapter configuration...")
     config = get_config()
-    win_dns = WindowsDNSAdapterManager(backup_dir=config.storage_dir)
+    win_dns = WindowsDNSAdapterManager()
     try:
-        win_dns.restore_original_dns()
+        if not win_dns.restore_original_dns():
+            print("ERROR: Original DNS settings could not be verified and restored.")
+            print("       Uninstallation aborted so the recovery journal is not destroyed.")
+            print("       Re-run this command as Administrator; the recovery guard will also retry.")
+            return
+        hosts_engine = HostsEnforcementEngine() if HostsEnforcementEngine else None
+        if hosts_engine:
+            hosts_engine.restore_rules()
+        win_dns.remove_recovery_task()
+        print("Original network configuration restored and verified.")
     except Exception as err:
         LOGGER.warning("Error during DNS restoration: %s", err)
+        print("ERROR: DNS restoration failed; uninstallation aborted to keep recovery data.")
+        return
 
     print("[2/3] Wiping secure credentials and tokens...")
     cmd_logout(args)
@@ -307,15 +329,49 @@ def cleanup_all_enforcement(hosts_engine=None, win_dns=None, usb_compliance=None
         pass
     try:
         if win_dns:
-            win_dns.restore_original_dns()
-            win_dns.clean_stale_dns()
-    except Exception:
-        pass
+            if not win_dns.restore_original_dns():
+                LOGGER.error(
+                    "DNS restoration is incomplete. The journal was retained and the "
+                    "background recovery guard will keep retrying."
+                )
+    except Exception as err:
+        LOGGER.error("DNS restoration error during cleanup: %s", err)
     try:
         if is_admin and usb_compliance:
             usb_compliance.restore_usb_storage_access()
     except Exception:
         pass
+
+def cmd_repair(args):
+    """Crash/reboot recovery entry point; safe to run from the SYSTEM guard task."""
+    quiet = bool(getattr(args, "quiet", False))
+    win_dns = WindowsDNSAdapterManager()
+    had_journal = os.path.exists(win_dns.backup_file)
+
+    try:
+        result = win_dns.recover_orphaned_state()
+    except Exception as err:
+        LOGGER.exception("Network recovery check failed: %s", err)
+        result = {"status": "error", "error": str(err)}
+
+    # A journal means a DNS-redirected session was orphaned. Remove the managed
+    # hosts block as well so the machine is fully back to baseline.
+    if had_journal and result.get("reason") != "resolver_live":
+        try:
+            hosts_engine = HostsEnforcementEngine() if HostsEnforcementEngine else None
+            if hosts_engine:
+                hosts_engine.restore_rules()
+        except Exception as err:
+            LOGGER.debug("Hosts restoration during repair: %s", err)
+
+    # Nothing left to guard once the journal is gone.
+    if not os.path.exists(win_dns.backup_file):
+        win_dns.remove_recovery_task()
+
+    if not quiet:
+        print("Network recovery status:", result.get("status"), result.get("reason") or "")
+    return result
+
 
 def cmd_run(args):
     """Main Agent Runtime Orchestrator Loop."""
@@ -331,21 +387,31 @@ def cmd_run(args):
     else:
         LOGGER.info("Privileges: Standard user (Safe non-elevated runtime)")
 
-    # Startup self-healing: ensure any stale restrictions from unexpected crashes are restored
-    win_dns = WindowsDNSAdapterManager(backup_dir=config.storage_dir)
+    # Startup self-healing: ensure any stale restrictions from unexpected crashes are restored.
+    # The adapter journal is machine-wide (ProgramData) so a crashed run, a reboot or a
+    # different user account can always find and undo a half-applied DNS redirect.
+    win_dns = WindowsDNSAdapterManager()
     hosts_engine = HostsEnforcementEngine() if HostsEnforcementEngine else None
     usb_compliance = USBComplianceManager(mode=current_mode)
 
+    recovery: Dict[str, Any] = {}
     try:
-        if hosts_engine:
+        recovery = win_dns.recover_orphaned_state()
+        LOGGER.info(
+            "Startup network recovery: %s%s",
+            recovery.get("status"),
+            f" ({recovery.get('reason')})" if recovery.get("reason") else "",
+        )
+    except Exception as err:
+        LOGGER.debug("Startup DNS recovery: %s", err)
+
+    try:
+        # Keep hosts rules intact when an already-running resolver owns the state,
+        # otherwise remove any stale block left by a previous crash.
+        if hosts_engine and recovery.get("reason") != "resolver_live":
             hosts_engine.restore_rules()
     except Exception as err:
         LOGGER.debug("Startup hosts rule restoration: %s", err)
-
-    try:
-        win_dns.clean_stale_dns()
-    except Exception as err:
-        LOGGER.debug("Startup DNS cleanup: %s", err)
 
     try:
         if is_admin:
@@ -451,8 +517,37 @@ def cmd_run(args):
     _last_session_active = False
     _dns_enforced = False
     _hosts_enforced = False
+    _dns_health_failures = 0
+    _dns_suspended_until_session_end = False
+    _dns_restore_next_attempt = 0.0
     _last_successful_sync = time.time()
     _seen_removable_drives: Set[str] = set()
+
+    def _restore_adapter_dns(reason: str) -> None:
+        """Undo adapter DNS redirection, keeping the journal until restore is verified."""
+        nonlocal _dns_enforced, _dns_health_failures, _dns_restore_next_attempt
+        journal_pending = os.path.exists(win_dns.backup_file)
+        if not _dns_enforced and not journal_pending:
+            _dns_health_failures = 0
+            return
+        now = time.time()
+        if not _dns_enforced and now < _dns_restore_next_attempt:
+            return
+        try:
+            restored = win_dns.restore_original_dns()
+        except Exception as err:
+            restored = False
+            LOGGER.error("Adapter DNS restore error (%s): %s", reason, err)
+        if restored:
+            LOGGER.info("Adapter DNS restored (%s).", reason)
+        else:
+            LOGGER.error(
+                "Adapter DNS restore incomplete (%s); journal retained and the network guard will retry.",
+                reason,
+            )
+        _dns_enforced = False
+        _dns_health_failures = 0
+        _dns_restore_next_attempt = 0.0 if restored else now + 60.0
 
     try:
         while True:
@@ -534,16 +629,30 @@ def cmd_run(args):
                         )
                     _seen_removable_drives = detected_drives
 
-                    # 5. DNS Adapter redirection if elevated and requested/available
-                    if is_admin and not _dns_enforced:
-                        if dns_server.healthy and dns_listener_port == 53:
-                            _dns_enforced = win_dns.configure_local_dns(
+                    # 5. DNS Adapter redirection: only ever point an adapter at loopback
+                    #    when the resolver is verified alive on port 53. A failed apply
+                    #    is rolled back immediately instead of leaving the device offline.
+                    if is_admin and not _dns_enforced and not _dns_suspended_until_session_end:
+                        if (
+                            dns_server.healthy
+                            and dns_listener_port == 53
+                            and win_dns.resolver_is_alive(port=dns_listener_port)
+                        ):
+                            if win_dns.configure_local_dns(
                                 target_dns="127.0.0.1",
                                 resolver_healthy=True,
-                            )
+                                resolver_port=dns_listener_port,
+                            ):
+                                _dns_enforced = True
+                                _dns_health_failures = 0
+                            else:
+                                LOGGER.error(
+                                    "DNS adapter redirection failed; restoring any partially applied adapter state."
+                                )
+                                _restore_adapter_dns("redirect failed")
                         else:
                             LOGGER.error(
-                                "DNS adapter redirection skipped: resolver must be healthy on port 53 (current port: %s).",
+                                "DNS adapter redirection skipped: resolver must answer on port 53 (configured port: %s).",
                                 dns_listener_port,
                             )
                 else:
@@ -559,9 +668,8 @@ def cmd_run(args):
                         hosts_engine.restore_rules()
                         hosts_engine._enforced_domains = None
                         _hosts_enforced = False
-                    if _dns_enforced:
-                        win_dns.restore_original_dns()
-                        _dns_enforced = False
+                    _restore_adapter_dns("session ended")
+                    _dns_suspended_until_session_end = False
                     if is_admin:
                         usb_compliance.restore_usb_storage_access()
 
@@ -590,9 +698,8 @@ def cmd_run(args):
                     if hosts_engine:
                         hosts_engine.restore_rules()
                         _hosts_enforced = False
-                    if _dns_enforced:
-                        win_dns.restore_original_dns()
-                        _dns_enforced = False
+                    _restore_adapter_dns("backend offline fail-safe")
+                    _dns_suspended_until_session_end = False
                     if is_admin:
                         usb_compliance.restore_usb_storage_access()
                     _last_session_active = False
@@ -600,9 +707,8 @@ def cmd_run(args):
                     if hosts_engine:
                         hosts_engine.restore_rules()
                         _hosts_enforced = False
-                    if _dns_enforced:
-                        win_dns.restore_original_dns()
-                        _dns_enforced = False
+                    _restore_adapter_dns("no active session")
+                    _dns_suspended_until_session_end = False
                     if is_admin:
                         usb_compliance.restore_usb_storage_access()
                     _last_session_active = False
@@ -616,6 +722,25 @@ def cmd_run(args):
                     resource_name="dns_config",
                     action="drift_alert"
                 )
+
+            # Resolver watchdog: adapters must never stay pointed at a dead resolver.
+            # Three consecutive failed probes restore the original adapter DNS and
+            # keep redirection disabled until the current session ends.
+            if _dns_enforced:
+                if win_dns.resolver_is_alive(port=dns_listener_port):
+                    _dns_health_failures = 0
+                else:
+                    _dns_health_failures += 1
+                    LOGGER.warning(
+                        "Local DNS resolver failed liveness probe (%d/3).",
+                        _dns_health_failures,
+                    )
+                    if _dns_health_failures >= 3:
+                        LOGGER.error(
+                            "Local DNS resolver is unresponsive; restoring adapter DNS to prevent a network lockout."
+                        )
+                        _restore_adapter_dns("resolver unresponsive")
+                        _dns_suspended_until_session_end = True
 
             # 3. Send Heartbeat with full compliance metrics
             app_ctrl_status = "active" if (is_active and current_mode != "AUDIT") else ("audit" if is_active else "idle")
@@ -681,6 +806,11 @@ def main():
     p_uninst = subparsers.add_parser("uninstall", help="Uninstall and remove agent configuration safely")
     p_uninst.add_argument("--yes", "-y", action="store_true", help="Skip interactive confirmation")
 
+    # Network repair (used by the autonomous recovery guard task)
+    p_repair = subparsers.add_parser("repair", help="Recover adapter DNS/hosts left behind by a crash or reboot")
+    p_repair.add_argument("--orphan-check", action="store_true", help="Only act when stale agent state is present")
+    p_repair.add_argument("--quiet", action="store_true", help="Suppress console output")
+
     # Run / Start
     p_run = subparsers.add_parser("run", help="Run local agent background daemon")
     p_run.add_argument("--token", help="8-Character Enrollment Token from Website")
@@ -704,6 +834,8 @@ def main():
         cmd_disable_enforcement(args)
     elif args.command == "uninstall":
         cmd_uninstall(args)
+    elif args.command == "repair":
+        cmd_repair(args)
     elif args.command in ("run", "start"):
         cmd_run(args)
     else:

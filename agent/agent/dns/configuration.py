@@ -23,11 +23,17 @@ class DNSConfigurationLifecycle:
         self.enforcement_enabled = False
         self.adapter_redirected = False
 
-    def enable_enforcement(self, admin_consent: bool = False) -> bool:
+    def enable_enforcement(self, policy=None, admin_consent: bool = False) -> bool:
         """
         Start local DNS resolver and conditionally redirect Windows network adapter DNS
         if explicit admin consent is provided and elevated rights exist.
+
+        ``policy`` is accepted for coordinator compatibility and does not imply consent.
         """
+        # Backward compatibility for callers that passed the consent flag positionally.
+        if isinstance(policy, bool) and not admin_consent:
+            admin_consent = policy
+
         started = self.resolver.start()
         if not started:
             LOGGER.error("Failed starting local DNS resolver")
@@ -35,28 +41,43 @@ class DNSConfigurationLifecycle:
 
         self.enforcement_enabled = True
 
+        resolver_port = getattr(self.resolver, "port", 53)
+        if admin_consent and resolver_port != 53:
+            LOGGER.error(
+                "Skipping adapter DNS redirect: resolver listens on port %s but Windows DNS uses port 53. "
+                "Hosts-file enforcement remains active.",
+                resolver_port,
+            )
+            self.adapter_redirected = False
+            return True
+
         if admin_consent and self.windows_adapter.is_admin():
-            redirected = self.windows_adapter.configure_local_dns(target_dns="127.0.0.1")
+            redirected = self.windows_adapter.configure_local_dns(
+                target_dns="127.0.0.1",
+                resolver_healthy=bool(getattr(self.resolver, "healthy", False)),
+                resolver_port=resolver_port,
+            )
             self.adapter_redirected = redirected
             if redirected:
                 LOGGER.info("Successfully redirected system DNS to local resolver")
-        
+            else:
+                LOGGER.warning("Adapter DNS redirection was not applied; continuing without it.")
+
         return True
 
     def disable_enforcement(self) -> bool:
         """Stop local resolver and restore original network adapter DNS settings."""
         self.enforcement_enabled = False
-        
+
         # Stop resolver
         self.resolver.stop()
 
-        # Restore original DNS configuration
-        restored = False
-        if self.adapter_redirected or self.windows_adapter.is_admin():
-            restored = self.windows_adapter.restore_original_dns()
-            self.adapter_redirected = False
+        # Restore whenever a journal exists, even if this process did not apply it
+        # (for example after a crash or restart).
+        restored = self.windows_adapter.restore_original_dns()
+        self.adapter_redirected = False
 
-        LOGGER.info("DNS Enforcement disabled and original network settings restored.")
+        LOGGER.info("DNS Enforcement disabled; adapter restoration result: %s", restored)
         return restored
 
     def check_drift_and_health(self) -> Dict[str, Any]:

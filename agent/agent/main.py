@@ -224,6 +224,15 @@ class AgentCoordinator:
         self._running = True
         logger.info(f"Academia Shield Local Agent Daemon started. State: {self.sm.current_state.value}")
 
+        # Repair DNS adapter state left behind by an earlier crashed run before
+        # this daemon begins enforcing anything.
+        try:
+            from .platform.windows_dns import WindowsDNSAdapterManager
+            recovery = WindowsDNSAdapterManager().recover_orphaned_state()
+            logger.info("Startup network recovery: %s", recovery.get("status"))
+        except Exception as err:
+            logger.warning("Startup network recovery skipped: %s", err)
+
         last_heartbeat = 0
         last_flush = 0
         last_policy_sync = 0

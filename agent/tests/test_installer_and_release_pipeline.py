@@ -36,6 +36,7 @@ from agent.core.storage.database import LocalDatabase
 from agent.monitoring.protected_processes import ProtectedProcessManager
 from agent.platforms.windows.process_monitor import WindowsProcessMonitor
 from agent.platforms.windows.dns import WindowsDnsEnforcement
+from agent.platforms.base import PlatformCapabilityStatus
 from agent.platforms.windows.installer import WindowsInstaller, WindowsUninstaller
 from agent.platforms.windows.compliance import WindowsUsbStorageCompliance
 import importlib.util
@@ -193,20 +194,23 @@ def test_no_activation_before_valid_student_session_join():
 # ==============================================================================
 
 def test_dns_backup_and_restoration():
-    """Verify DNS settings are backed up and cleanly restored without touching hosts or firewall."""
-    dns_adapter = WindowsDnsEnforcement()
-    
-    # Simulate active enforcement and mock backup
-    dns_adapter._original_dns_backup = {
-        "Wi-Fi": {"dhcp": True, "servers": ["192.168.1.1"]}
-    }
+    """Verify DNS restoration is delegated to the durable journal and reported honestly."""
+    manager = MagicMock()
+    manager.restore_original_dns.return_value = True
+    dns_adapter = WindowsDnsEnforcement(manager=manager)
     dns_adapter._is_enforced = True
 
-    # Restore settings
     res = dns_adapter.restore_original_dns()
     assert dns_adapter._is_enforced is False
-    assert len(dns_adapter._original_dns_backup) == 0
+    manager.restore_original_dns.assert_called_once()
     assert "restored" in res.message.lower()
+
+    # A failed restore must be reported as an error, never as success.
+    manager.restore_original_dns.return_value = False
+    dns_adapter._is_enforced = True
+    failed = dns_adapter.restore_original_dns()
+    assert failed.status != PlatformCapabilityStatus.ACTIVE
+    assert "pending" in failed.message.lower()
 
 # ==============================================================================
 # 7. Protected Process Safety

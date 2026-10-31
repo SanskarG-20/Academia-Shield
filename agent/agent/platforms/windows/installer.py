@@ -47,9 +47,19 @@ class WindowsInstaller(PlatformInstaller):
 
 class WindowsUninstaller(PlatformUninstaller):
     def uninstall(self, purge_data: bool = False) -> PlatformStatusResult:
-        # Step 1: Restore DNS settings if any active enforcement exists
+        # Step 1: Restore DNS settings if any active enforcement exists.
+        # Never delete files or credentials while a recovery journal is pending.
         dns = WindowsDnsEnforcement()
-        dns.restore_original_dns()
+        restore = dns.restore_original_dns()
+        if restore.status not in (PlatformCapabilityStatus.ACTIVE, PlatformCapabilityStatus.SUPPORTED):
+            return PlatformStatusResult(
+                status=restore.status,
+                message=(
+                    "Uninstallation paused: original adapter DNS could not be verified and restored. "
+                    "Run again as Administrator; the recovery guard will keep retrying."
+                ),
+                details={"restore_message": restore.message},
+            )
 
         # Step 2: Stop and uninstall Windows Service
         if sys.platform.startswith("win"):
